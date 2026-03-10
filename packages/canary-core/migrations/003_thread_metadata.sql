@@ -1,0 +1,3 @@
+ALTER TABLE threads ADD COLUMN type TEXT NOT NULL DEFAULT 'decision';
+
+ALTER TABLE threads ADD COLUMN severity TEXT NOT NULL DEFAULT 'medium';
