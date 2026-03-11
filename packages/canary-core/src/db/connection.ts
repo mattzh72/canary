@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { Kysely, SqliteDialect } from "kysely";
 import type { CanaryDatabase } from "../types/database.js";
+import { getProjectStateDir, resolveProjectRoot } from "./storage.js";
 
 export interface CanaryConnection {
   projectRoot: string;
-  canaryDir: string;
+  stateDir: string;
   dbFile: string;
   sqlite: Database.Database;
   db: Kysely<CanaryDatabase>;
@@ -15,10 +16,11 @@ export interface CanaryConnection {
 }
 
 export function openConnection(projectRoot: string): CanaryConnection {
-  const canaryDir = path.join(projectRoot, ".canary");
-  fs.mkdirSync(canaryDir, { recursive: true });
+  const canonicalProjectRoot = resolveProjectRoot(projectRoot);
+  const stateDir = getProjectStateDir(canonicalProjectRoot);
+  fs.mkdirSync(stateDir, { recursive: true });
 
-  const dbFile = path.join(canaryDir, "canary.db");
+  const dbFile = path.join(stateDir, "canary.db");
   const sqlite = new Database(dbFile);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("synchronous = NORMAL");
@@ -32,8 +34,8 @@ export function openConnection(projectRoot: string): CanaryConnection {
   });
 
   return {
-    projectRoot,
-    canaryDir,
+    projectRoot: canonicalProjectRoot,
+    stateDir,
     dbFile,
     sqlite,
     db,

@@ -1,25 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-import { applyMigrations, getLatestSession, openConnection } from "canary-core";
-
-function resolveProjectRoot(cwd: string): string {
-  let current = path.resolve(cwd);
-
-  while (true) {
-    if (
-      fs.existsSync(path.join(current, ".canary")) ||
-      fs.existsSync(path.join(current, ".git"))
-    ) {
-      return current;
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      return path.resolve(cwd);
-    }
-    current = parent;
-  }
-}
+import { applyMigrations, getLatestSession, openConnection, resolveProjectRoot } from "canary-core";
 
 export async function withConnection<T>(
   cwd: string,

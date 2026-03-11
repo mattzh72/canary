@@ -23,6 +23,6 @@ export async function runThreadReply(input: ThreadReplyInput): Promise<void> {
       return;
     }
 
-    printRecord(message.id, input.threadId, input.body);
+    printRecord(message.id, input.threadId, `${message.author} · ${input.body}`);
   });
 }

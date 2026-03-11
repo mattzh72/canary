@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean && cp -R migrations dist/migrations",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "vitest run --passWithNoTests",
+    "test": "CANARY_HOME=/tmp/canary-test-home vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

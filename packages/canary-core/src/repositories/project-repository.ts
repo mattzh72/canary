@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { Selectable } from "kysely";
 import type { CanaryConnection } from "../db/connection.js";
 import { createId } from "../db/ids.js";
@@ -5,13 +7,12 @@ import { parseJsonObject, stringifyJson } from "../db/json.js";
 import type {
   EventsTable,
   FileBriefsTable,
-  NotesTable,
-  ReviewMarksTable,
   SessionsTable,
   ThreadsTable,
   ThreadMessagesTable
 } from "../types/database.js";
 import type {
+  ArtifactFreshness,
   ChangedFileSummary,
   EventKind,
   EventRecord,
@@ -19,18 +20,13 @@ import type {
   FileBriefRecord,
   JsonObject,
   LineSide,
-  NoteKind,
-  NoteRecord,
   ProjectOverview,
-  ReviewMarkCategory,
-  ReviewMarkRecord,
-  ReviewMarkSeverity,
   SearchResult,
   SessionRecord,
   SessionStatus,
+  TodoRecord,
   ThreadMessageRecord,
   ThreadRecord,
-  ThreadSeverity,
   ThreadType,
   ThreadStatus
 } from "../types/models.js";
@@ -56,34 +52,11 @@ interface AnchorTarget {
   anchor?: JsonObject;
 }
 
-interface CreateReviewMarkInput extends AnchorTarget {
-  sessionId?: string | null;
-  title: string;
-  category: ReviewMarkCategory;
-  severity: ReviewMarkSeverity;
-  status?: ReviewMarkRecord["status"];
-  reviewReason: string;
-  rationale?: string | null;
-  source?: string;
-  author?: string;
-}
-
-interface CreateNoteInput extends AnchorTarget {
-  sessionId?: string | null;
-  title: string;
-  body: string;
-  kind: NoteKind;
-  status?: NoteRecord["status"];
-  source?: string;
-  author?: string;
-}
-
 interface CreateThreadInput extends AnchorTarget {
   sessionId?: string | null;
   title: string;
   body: string;
   type: ThreadType;
-  severity: ThreadSeverity;
   status?: ThreadStatus;
   source?: string;
   author?: string;
@@ -96,12 +69,55 @@ interface AddThreadMessageInput {
   author?: string;
 }
 
+interface UpdateThreadStatusInput {
+  threadId: string;
+  status: ThreadStatus;
+}
+
+interface ListThreadsInput {
+  limit?: number;
+  status?: ThreadStatus | "all";
+  freshness?: ArtifactFreshness | "all";
+  type?: ThreadType;
+  filePath?: string;
+  pendingFor?: "agent" | "user";
+}
+
+interface ListFileBriefsInput {
+  limit?: number;
+  updatedSince?: string;
+  freshness?: ArtifactFreshness | "all";
+  filePath?: string;
+}
+
+interface ListTodosInput {
+  limit?: number;
+  filePath?: string;
+}
+
 interface UpsertFileBriefInput {
   filePath: string;
   summary: string;
   details?: string | null;
   source?: string;
   author?: string;
+}
+
+interface ReconcileFileChangeInput {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+  patch: string;
+}
+
+interface ParsedPatchHunk {
+  oldStart: number;
+  oldCount: number;
+  oldEnd: number;
+  newStart: number;
+  newCount: number;
+  newEnd: number;
+  oldToNew: Map<number, number>;
 }
 
 function mapSession(row: Selectable<SessionsTable>): SessionRecord {
@@ -127,48 +143,14 @@ function mapEvent(row: Selectable<EventsTable>): EventRecord {
   };
 }
 
-function mapReviewMark(row: Selectable<ReviewMarksTable>): ReviewMarkRecord {
-  return {
-    id: row.id,
-    projectRoot: row.project_root,
-    sessionId: row.session_id,
-    filePath: row.file_path,
-    startLine: row.start_line,
-    endLine: row.end_line,
-    lineSide: (row.line_side as LineSide | null) ?? null,
-    title: row.title,
-    category: row.category as ReviewMarkCategory,
-    severity: row.severity as ReviewMarkSeverity,
-    status: row.status as ReviewMarkRecord["status"],
-    reviewReason: row.review_reason,
-    rationale: row.rationale,
-    anchor: parseJsonObject(row.anchor_json),
-    source: row.source,
-    author: row.author,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
-
-function mapNote(row: Selectable<NotesTable>): NoteRecord {
-  return {
-    id: row.id,
-    projectRoot: row.project_root,
-    sessionId: row.session_id,
-    filePath: row.file_path,
-    startLine: row.start_line,
-    endLine: row.end_line,
-    lineSide: (row.line_side as LineSide | null) ?? null,
-    title: row.title,
-    body: row.body,
-    kind: row.kind as NoteKind,
-    status: row.status as NoteRecord["status"],
-    anchor: parseJsonObject(row.anchor_json),
-    source: row.source,
-    author: row.author,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
+function normalizeThreadType(type: string): ThreadType {
+  if (type === "assumption") {
+    return "question";
+  }
+  if (type === "scope_extension") {
+    return "scope_change";
+  }
+  return type as ThreadType;
 }
 
 function mapThread(row: Selectable<ThreadsTable>, messages: ThreadMessageRecord[]): ThreadRecord {
@@ -181,9 +163,9 @@ function mapThread(row: Selectable<ThreadsTable>, messages: ThreadMessageRecord[
     endLine: row.end_line,
     lineSide: (row.line_side as LineSide | null) ?? null,
     title: row.title,
-    type: row.type as ThreadType,
-    severity: row.severity as ThreadSeverity,
+    type: normalizeThreadType(row.type),
     status: row.status as ThreadStatus,
+    freshness: (row.freshness as ArtifactFreshness | null) ?? "active",
     anchor: parseJsonObject(row.anchor_json),
     source: row.source,
     author: row.author,
@@ -211,11 +193,30 @@ function mapFileBrief(row: Selectable<FileBriefsTable>): FileBriefRecord {
     filePath: row.file_path,
     summary: row.summary,
     details: row.details,
+    freshness: (row.freshness as ArtifactFreshness | null) ?? "active",
     source: row.source,
     author: row.author,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function getPendingFor(thread: ThreadRecord): "agent" | "user" | null {
+  if (thread.status !== "open") {
+    return null;
+  }
+
+  const lastMessage = thread.messages.at(-1);
+  if (!lastMessage) {
+    return null;
+  }
+  if (lastMessage.author === "agent") {
+    return "user";
+  }
+  if (lastMessage.author === "user") {
+    return "agent";
+  }
+  return null;
 }
 
 function createAnchorPayload(target: AnchorTarget): JsonObject {
@@ -233,6 +234,252 @@ function createAnchorPayload(target: AnchorTarget): JsonObject {
     anchor.lineSide = target.lineSide;
   }
   return anchor;
+}
+
+function getContentLines(content: string): string[] {
+  const lines = content.split("\n");
+  if (lines.length > 0 && lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+function getLinesInRange(content: string, startLine: number, endLine: number): string[] | null {
+  const lines = getContentLines(content);
+  if (startLine < 1 || endLine < startLine || endLine > lines.length) {
+    return null;
+  }
+  return lines.slice(startLine - 1, endLine);
+}
+
+function readThreadAnchorText(
+  projectRoot: string,
+  filePath: string,
+  startLine: number,
+  endLine: number
+): string[] | null {
+  try {
+    const absolutePath = path.join(projectRoot, filePath);
+    const content = fs.readFileSync(absolutePath, "utf8");
+    return getLinesInRange(content, startLine, endLine);
+  } catch {
+    return null;
+  }
+}
+
+function parseUnifiedPatch(patch: string): ParsedPatchHunk[] {
+  const hunks: ParsedPatchHunk[] = [];
+  const lines = patch.split("\n");
+  const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index] ?? "";
+    const match = rawLine.match(header);
+    if (!match?.[1] || !match[3]) {
+      continue;
+    }
+
+    const oldStart = Number.parseInt(match[1], 10);
+    const oldCount = Number.parseInt(match[2] ?? "1", 10);
+    const newStart = Number.parseInt(match[3], 10);
+    const newCount = Number.parseInt(match[4] ?? "1", 10);
+    const oldToNew = new Map<number, number>();
+    let oldLine = oldStart;
+    let newLine = newStart;
+
+    while (index + 1 < lines.length) {
+      const nextLine = lines[index + 1] ?? "";
+      if (header.test(nextLine)) {
+        break;
+      }
+
+      index += 1;
+
+      if (nextLine.startsWith(" ")) {
+        oldToNew.set(oldLine, newLine);
+        oldLine += 1;
+        newLine += 1;
+        continue;
+      }
+
+      if (nextLine.startsWith("-")) {
+        oldLine += 1;
+        continue;
+      }
+
+      if (nextLine.startsWith("+")) {
+        newLine += 1;
+        continue;
+      }
+
+      if (nextLine.startsWith("\\")) {
+        continue;
+      }
+
+      break;
+    }
+
+    hunks.push({
+      oldStart,
+      oldCount,
+      oldEnd: oldCount === 0 ? oldStart - 1 : oldStart + oldCount - 1,
+      newStart,
+      newCount,
+      newEnd: newCount === 0 ? newStart - 1 : newStart + newCount - 1,
+      oldToNew
+    });
+  }
+
+  return hunks;
+}
+
+function remapThreadSpan(
+  thread: ThreadRecord,
+  oldContent: string,
+  newContent: string,
+  patch: string
+): {
+  startLine: number | null;
+  endLine: number | null;
+  lineSide: LineSide | null;
+  freshness: ArtifactFreshness;
+  anchor: JsonObject;
+} {
+  if (thread.startLine === null || thread.endLine === null) {
+    return {
+      startLine: thread.startLine,
+      endLine: thread.endLine,
+      lineSide: thread.lineSide,
+      freshness: thread.freshness,
+      anchor: thread.anchor
+    };
+  }
+
+  if (thread.lineSide === "old") {
+    return {
+      startLine: thread.startLine,
+      endLine: thread.endLine,
+      lineSide: thread.lineSide,
+      freshness: "outdated",
+      anchor: thread.anchor
+    };
+  }
+
+  const oldAnchorLines = getLinesInRange(oldContent, thread.startLine, thread.endLine);
+  if (!oldAnchorLines) {
+    return {
+      startLine: thread.startLine,
+      endLine: thread.endLine,
+      lineSide: thread.lineSide,
+      freshness: "outdated",
+      anchor: thread.anchor
+    };
+  }
+
+  const hunks = parseUnifiedPatch(patch);
+  let delta = 0;
+  let overlapsAnchor = false;
+
+  for (const hunk of hunks) {
+    if (hunk.oldCount === 0) {
+      if (hunk.oldStart <= thread.startLine) {
+        delta += hunk.newCount;
+      } else if (hunk.oldStart <= thread.endLine) {
+        overlapsAnchor = true;
+      }
+      continue;
+    }
+
+    if (hunk.oldEnd < thread.startLine) {
+      delta += hunk.newCount - hunk.oldCount;
+      continue;
+    }
+
+    if (hunk.oldStart > thread.endLine) {
+      continue;
+    }
+
+    overlapsAnchor = true;
+  }
+
+  if (!overlapsAnchor) {
+    const nextStartLine = thread.startLine + delta;
+    const nextEndLine = thread.endLine + delta;
+    const anchor = {
+      ...thread.anchor,
+      startLine: nextStartLine,
+      endLine: nextEndLine,
+      lineSide: thread.lineSide ?? "new"
+    };
+    return {
+      startLine: nextStartLine,
+      endLine: nextEndLine,
+      lineSide: thread.lineSide ?? "new",
+      freshness: "active",
+      anchor
+    };
+  }
+
+  const oldToNew = new Map<number, number>();
+  for (const hunk of hunks) {
+    for (const [oldLine, newLine] of hunk.oldToNew.entries()) {
+      oldToNew.set(oldLine, newLine);
+    }
+  }
+
+  const mappedLines: number[] = [];
+  for (let line = thread.startLine; line <= thread.endLine; line += 1) {
+    const mapped = oldToNew.get(line);
+    if (typeof mapped !== "number") {
+      return {
+        startLine: thread.startLine,
+        endLine: thread.endLine,
+        lineSide: thread.lineSide,
+        freshness: "outdated",
+        anchor: thread.anchor
+      };
+    }
+    mappedLines.push(mapped);
+  }
+
+  for (let index = 1; index < mappedLines.length; index += 1) {
+    if (mappedLines[index] !== mappedLines[index - 1]! + 1) {
+      return {
+        startLine: thread.startLine,
+        endLine: thread.endLine,
+        lineSide: thread.lineSide,
+        freshness: "outdated",
+        anchor: thread.anchor
+      };
+    }
+  }
+
+  const nextStartLine = mappedLines[0] ?? thread.startLine;
+  const nextEndLine = mappedLines.at(-1) ?? thread.endLine;
+  const newAnchorLines = getLinesInRange(newContent, nextStartLine, nextEndLine);
+  if (!newAnchorLines || newAnchorLines.join("\n") !== oldAnchorLines.join("\n")) {
+    return {
+      startLine: thread.startLine,
+      endLine: thread.endLine,
+      lineSide: thread.lineSide,
+      freshness: "outdated",
+      anchor: thread.anchor
+    };
+  }
+
+  const anchor = {
+    ...thread.anchor,
+    startLine: nextStartLine,
+    endLine: nextEndLine,
+    lineSide: thread.lineSide ?? "new"
+  };
+  return {
+    startLine: nextStartLine,
+    endLine: nextEndLine,
+    lineSide: thread.lineSide ?? "new",
+    freshness: "active",
+    anchor
+  };
 }
 
 export async function createSession(
@@ -332,106 +579,6 @@ export async function listRecentEvents(
   return rows.reverse().map(mapEvent);
 }
 
-export async function createReviewMark(
-  connection: CanaryConnection,
-  input: CreateReviewMarkInput
-): Promise<ReviewMarkRecord> {
-  const id = createId("mark");
-  const now = new Date().toISOString();
-  const anchor = createAnchorPayload(input);
-
-  const row = await connection.db
-    .insertInto("review_marks")
-    .values({
-      id,
-      project_root: connection.projectRoot,
-      session_id: input.sessionId ?? null,
-      file_path: input.filePath ?? "",
-      start_line: input.startLine ?? null,
-      end_line: input.endLine ?? null,
-      line_side: input.lineSide ?? null,
-      title: input.title,
-      category: input.category,
-      severity: input.severity,
-      status: input.status ?? "current",
-      review_reason: input.reviewReason,
-      rationale: input.rationale ?? null,
-      anchor_json: stringifyJson(anchor),
-      source: input.source ?? "canaryctl",
-      author: input.author ?? "agent",
-      created_at: now,
-      updated_at: now
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
-
-  return mapReviewMark(row);
-}
-
-export async function listReviewMarks(
-  connection: CanaryConnection,
-  limit = 50
-): Promise<ReviewMarkRecord[]> {
-  const rows = await connection.db
-    .selectFrom("review_marks")
-    .selectAll()
-    .where("project_root", "=", connection.projectRoot)
-    .orderBy("updated_at", "desc")
-    .limit(limit)
-    .execute();
-
-  return rows.map(mapReviewMark);
-}
-
-export async function createNote(
-  connection: CanaryConnection,
-  input: CreateNoteInput
-): Promise<NoteRecord> {
-  const id = createId("note");
-  const now = new Date().toISOString();
-  const anchor = createAnchorPayload(input);
-
-  const row = await connection.db
-    .insertInto("notes")
-    .values({
-      id,
-      project_root: connection.projectRoot,
-      session_id: input.sessionId ?? null,
-      file_path: input.filePath ?? null,
-      start_line: input.startLine ?? null,
-      end_line: input.endLine ?? null,
-      line_side: input.lineSide ?? null,
-      title: input.title,
-      body: input.body,
-      kind: input.kind,
-      status: input.status ?? "current",
-      anchor_json: stringifyJson(anchor),
-      source: input.source ?? "canaryctl",
-      author: input.author ?? "agent",
-      created_at: now,
-      updated_at: now
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
-
-  return mapNote(row);
-}
-
-export async function listNotes(
-  connection: CanaryConnection,
-  limit = 50
-): Promise<NoteRecord[]> {
-  const rows = await connection.db
-    .selectFrom("notes")
-    .selectAll()
-    .where("project_root", "=", connection.projectRoot)
-    .orderBy("updated_at", "desc")
-    .limit(limit)
-    .execute();
-
-  return rows.map(mapNote);
-}
-
 export async function createThread(
   connection: CanaryConnection,
   input: CreateThreadInput
@@ -439,7 +586,19 @@ export async function createThread(
   const id = createId("thread");
   const messageId = createId("msg");
   const now = new Date().toISOString();
-  const anchor = createAnchorPayload(input);
+  const capturedAnchorLines =
+    input.filePath && typeof input.startLine === "number" && typeof input.endLine === "number"
+      ? readThreadAnchorText(connection.projectRoot, input.filePath, input.startLine, input.endLine)
+      : null;
+  const anchor = createAnchorPayload({
+    ...input,
+    anchor: capturedAnchorLines
+      ? {
+          ...input.anchor,
+          text: capturedAnchorLines.join("\n")
+        }
+      : input.anchor
+  });
 
   await connection.db.transaction().execute(async (trx) => {
     await trx
@@ -454,8 +613,8 @@ export async function createThread(
         line_side: input.lineSide ?? null,
         title: input.title,
         type: input.type,
-        severity: input.severity,
         status: input.status ?? "open",
+        freshness: "active",
         anchor_json: stringifyJson(anchor),
         source: input.source ?? "canaryctl",
         author: input.author ?? "agent",
@@ -487,8 +646,8 @@ export async function createThread(
     lineSide: input.lineSide ?? null,
     title: input.title,
     type: input.type,
-    severity: input.severity,
     status: input.status ?? "open",
+    freshness: "active",
     anchor,
     source: input.source ?? "canaryctl",
     author: input.author ?? "agent",
@@ -544,17 +703,57 @@ export async function addThreadMessage(
   };
 }
 
+export async function updateThreadStatus(
+  connection: CanaryConnection,
+  input: UpdateThreadStatusInput
+): Promise<ThreadRecord> {
+  const now = new Date().toISOString();
+  const row = await connection.db
+    .updateTable("threads")
+    .set({
+      status: input.status,
+      updated_at: now
+    })
+    .where("project_root", "=", connection.projectRoot)
+    .where("id", "=", input.threadId)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  const messages = await connection.db
+    .selectFrom("thread_messages")
+    .selectAll()
+    .where("thread_id", "=", input.threadId)
+    .orderBy("created_at", "asc")
+    .execute();
+
+  return mapThread(row, messages.map(mapThreadMessage));
+}
+
 export async function listThreads(
   connection: CanaryConnection,
-  limit = 30
+  input: number | ListThreadsInput = 30
 ): Promise<ThreadRecord[]> {
-  const rows = await connection.db
+  const options = typeof input === "number" ? { limit: input } : input;
+  const limit = options.limit ?? 30;
+  let query = connection.db
     .selectFrom("threads")
     .selectAll()
-    .where("project_root", "=", connection.projectRoot)
-    .orderBy("updated_at", "desc")
-    .limit(limit)
-    .execute();
+    .where("project_root", "=", connection.projectRoot);
+
+  if (options.status && options.status !== "all") {
+    query = query.where("status", "=", options.status);
+  }
+  if (options.freshness && options.freshness !== "all") {
+    query = query.where("freshness", "=", options.freshness);
+  }
+  if (options.type) {
+    query = query.where("type", "=", options.type);
+  }
+  if (options.filePath) {
+    query = query.where("file_path", "=", options.filePath);
+  }
+
+  const rows = await query.orderBy("updated_at", "desc").execute();
 
   const messages = await connection.db
     .selectFrom("thread_messages")
@@ -574,7 +773,25 @@ export async function listThreads(
     byThread.set(message.threadId, bucket);
   }
 
-  return rows.map((row) => mapThread(row, byThread.get(row.id) ?? []));
+  const threads = rows.map((row) => mapThread(row, byThread.get(row.id) ?? []));
+  const filteredThreads = options.pendingFor
+    ? threads.filter((thread) => {
+        if (thread.status !== "open") {
+          return false;
+        }
+
+        const lastMessage = thread.messages.at(-1);
+        if (!lastMessage) {
+          return false;
+        }
+
+        return options.pendingFor === "agent"
+          ? lastMessage.author === "user"
+          : lastMessage.author === "agent";
+      })
+    : threads;
+
+  return filteredThreads.slice(0, limit);
 }
 
 export async function upsertFileBrief(
@@ -597,6 +814,7 @@ export async function upsertFileBrief(
       .set({
         summary: input.summary,
         details: input.details ?? null,
+        freshness: "active",
         source: input.source ?? "canaryctl",
         author: input.author ?? "agent",
         updated_at: now
@@ -615,6 +833,7 @@ export async function upsertFileBrief(
       file_path: input.filePath,
       summary: input.summary,
       details: input.details ?? null,
+      freshness: "active",
       source: input.source ?? "canaryctl",
       author: input.author ?? "agent",
       created_at: now,
@@ -628,17 +847,181 @@ export async function upsertFileBrief(
 
 export async function listFileBriefs(
   connection: CanaryConnection,
-  limit = 50
+  input: number | ListFileBriefsInput = 50
 ): Promise<FileBriefRecord[]> {
-  const rows = await connection.db
+  const options = typeof input === "number" ? { limit: input } : input;
+  const limit = options.limit ?? 50;
+  let query = connection.db
     .selectFrom("file_briefs")
     .selectAll()
-    .where("project_root", "=", connection.projectRoot)
+    .where("project_root", "=", connection.projectRoot);
+
+  if (options.updatedSince) {
+    query = query.where("updated_at", ">=", options.updatedSince);
+  }
+  if (options.freshness && options.freshness !== "all") {
+    query = query.where("freshness", "=", options.freshness);
+  }
+  if (options.filePath) {
+    query = query.where("file_path", "=", options.filePath);
+  }
+
+  const rows = await query
     .orderBy("updated_at", "desc")
     .limit(limit)
     .execute();
 
   return rows.map(mapFileBrief);
+}
+
+export async function reconcileArtifactsForFileChange(
+  connection: CanaryConnection,
+  input: ReconcileFileChangeInput
+): Promise<void> {
+  const now = new Date().toISOString();
+  const threads = await listThreads(connection, {
+    status: "all",
+    freshness: "active",
+    filePath: input.filePath,
+    limit: 500
+  });
+  const briefs = await listFileBriefs(connection, {
+    filePath: input.filePath,
+    freshness: "active",
+    limit: 50
+  });
+
+  if (threads.length === 0 && briefs.length === 0) {
+    return;
+  }
+
+  await connection.db.transaction().execute(async (trx) => {
+    for (const thread of threads) {
+      const next = remapThreadSpan(thread, input.oldContent, input.newContent, input.patch);
+      if (
+        next.freshness === thread.freshness &&
+        next.startLine === thread.startLine &&
+        next.endLine === thread.endLine &&
+        next.lineSide === thread.lineSide
+      ) {
+        continue;
+      }
+
+      await trx
+        .updateTable("threads")
+        .set({
+          start_line: next.startLine,
+          end_line: next.endLine,
+          line_side: next.lineSide,
+          freshness: next.freshness,
+          anchor_json: stringifyJson(next.anchor),
+          updated_at: now
+        })
+        .where("id", "=", thread.id)
+        .execute();
+    }
+
+    if (briefs.length > 0) {
+      await trx
+        .updateTable("file_briefs")
+        .set({
+          freshness: "outdated",
+          updated_at: now
+        })
+        .where("project_root", "=", connection.projectRoot)
+        .where("file_path", "=", input.filePath)
+        .where("freshness", "=", "active")
+        .execute();
+    }
+  });
+}
+
+export async function listTodos(
+  connection: CanaryConnection,
+  input: number | ListTodosInput = 50
+): Promise<TodoRecord[]> {
+  const options = typeof input === "number" ? { limit: input } : input;
+  const limit = options.limit ?? 50;
+  const [threads, outdatedBriefs] = await Promise.all([
+    listThreads(connection, {
+      status: "open",
+      freshness: "all",
+      filePath: options.filePath,
+      limit: 500
+    }),
+    listFileBriefs(connection, {
+      freshness: "outdated",
+      filePath: options.filePath,
+      limit: 200
+    })
+  ]);
+
+  const items: TodoRecord[] = [];
+
+  for (const thread of threads) {
+    const pendingFor = getPendingFor(thread);
+    if (thread.freshness === "outdated") {
+      items.push({
+        kind: "thread_anchor_outdated",
+        artifactKind: "thread",
+        artifactId: thread.id,
+        filePath: thread.filePath,
+        title: thread.title,
+        status: thread.status,
+        freshness: thread.freshness,
+        pendingFor,
+        updatedAt: thread.updatedAt
+      });
+      continue;
+    }
+
+    if (pendingFor === "agent") {
+      items.push({
+        kind: "thread_reply_needed",
+        artifactKind: "thread",
+        artifactId: thread.id,
+        filePath: thread.filePath,
+        title: thread.title,
+        status: thread.status,
+        freshness: thread.freshness,
+        pendingFor,
+        updatedAt: thread.updatedAt
+      });
+      continue;
+    }
+
+    if (pendingFor === "user") {
+      items.push({
+        kind: "thread_waiting_on_user",
+        artifactKind: "thread",
+        artifactId: thread.id,
+        filePath: thread.filePath,
+        title: thread.title,
+        status: thread.status,
+        freshness: thread.freshness,
+        pendingFor,
+        updatedAt: thread.updatedAt
+      });
+    }
+  }
+
+  for (const brief of outdatedBriefs) {
+    items.push({
+      kind: "brief_outdated",
+      artifactKind: "file_brief",
+      artifactId: brief.id,
+      filePath: brief.filePath,
+      title: brief.filePath,
+      status: null,
+      freshness: brief.freshness,
+      pendingFor: null,
+      updatedAt: brief.updatedAt
+    });
+  }
+
+  return items
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, limit);
 }
 
 export async function searchProject(
@@ -647,29 +1030,7 @@ export async function searchProject(
 ): Promise<SearchResult[]> {
   const like = `%${query}%`;
 
-  const [marks, notes, threads, briefs] = await Promise.all([
-    connection.db
-      .selectFrom("review_marks")
-      .selectAll()
-      .where("project_root", "=", connection.projectRoot)
-      .where((eb) =>
-        eb.or([
-          eb("title", "like", like),
-          eb("review_reason", "like", like),
-          eb("rationale", "like", like)
-        ])
-      )
-      .limit(20)
-      .execute(),
-    connection.db
-      .selectFrom("notes")
-      .selectAll()
-      .where("project_root", "=", connection.projectRoot)
-      .where((eb) =>
-        eb.or([eb("title", "like", like), eb("body", "like", like)])
-      )
-      .limit(20)
-      .execute(),
+  const [threads, briefs] = await Promise.all([
     connection.db
       .selectFrom("threads")
       .leftJoin("thread_messages", "thread_messages.thread_id", "threads.id")
@@ -701,22 +1062,6 @@ export async function searchProject(
   ]);
 
   return [
-    ...marks.map((mark) => ({
-      kind: "mark" as const,
-      id: mark.id,
-      title: mark.title,
-      excerpt: mark.review_reason,
-      filePath: mark.file_path,
-      updatedAt: mark.updated_at
-    })),
-    ...notes.map((note) => ({
-      kind: "note" as const,
-      id: note.id,
-      title: note.title,
-      excerpt: note.body,
-      filePath: note.file_path,
-      updatedAt: note.updated_at
-    })),
     ...threads.map((thread) => ({
       kind: "thread" as const,
       id: thread.id,
@@ -755,10 +1100,13 @@ export async function getProjectOverview(
         .executeTakeFirst();
 
   const selectedSession = session ? mapSession(session) : null;
-  const marks = await listReviewMarks(connection, 20);
-  const notes = await listNotes(connection, 20);
   const threads = await listThreads(connection, 12);
-  const fileBriefs = await listFileBriefs(connection, 20);
+  const fileBriefs = selectedSession
+    ? await listFileBriefs(connection, {
+        limit: 20,
+        updatedSince: selectedSession.startedAt
+      })
+    : await listFileBriefs(connection, 20);
   const recentEvents = selectedSession
     ? await listRecentEvents(connection, selectedSession.id, 30)
     : [];
@@ -795,8 +1143,6 @@ export async function getProjectOverview(
     changedFiles: [...changedFilesMap.values()].sort((left, right) =>
       right.lastUpdatedAt.localeCompare(left.lastUpdatedAt)
     ),
-    marks,
-    notes,
     threads,
     fileBriefs,
     recentEvents

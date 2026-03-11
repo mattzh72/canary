@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS review_marks;
+
+DROP TABLE IF EXISTS notes;

@@ -25,50 +25,6 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_session_id_id
   ON events (session_id, id DESC);
 
-CREATE TABLE IF NOT EXISTS review_marks (
-  id TEXT PRIMARY KEY,
-  project_root TEXT NOT NULL,
-  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-  file_path TEXT NOT NULL,
-  start_line INTEGER,
-  end_line INTEGER,
-  title TEXT NOT NULL,
-  category TEXT NOT NULL,
-  severity TEXT NOT NULL,
-  status TEXT NOT NULL,
-  review_reason TEXT NOT NULL,
-  rationale TEXT,
-  anchor_json TEXT NOT NULL DEFAULT '{}',
-  source TEXT NOT NULL,
-  author TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_review_marks_project_file
-  ON review_marks (project_root, file_path, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS notes (
-  id TEXT PRIMARY KEY,
-  project_root TEXT NOT NULL,
-  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-  file_path TEXT,
-  start_line INTEGER,
-  end_line INTEGER,
-  title TEXT NOT NULL,
-  body TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  status TEXT NOT NULL,
-  anchor_json TEXT NOT NULL DEFAULT '{}',
-  source TEXT NOT NULL,
-  author TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_notes_project_file
-  ON notes (project_root, file_path, updated_at DESC);
-
 CREATE TABLE IF NOT EXISTS threads (
   id TEXT PRIMARY KEY,
   project_root TEXT NOT NULL,

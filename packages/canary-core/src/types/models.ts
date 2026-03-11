@@ -6,24 +6,16 @@ export type EventKind = "session_status" | "file_diff" | "conversation_item" | "
 
 export type EventSource = "canary" | "watcher" | "observer" | "canaryctl";
 
-export type ReviewMarkCategory =
-  | "design_decision"
-  | "assumption"
-  | "tradeoff"
-  | "risk"
-  | "needs_confirmation"
-  | "follow_up";
-
-export type ReviewMarkSeverity = "low" | "medium" | "high";
-export type ThreadType = "decision" | "assumption" | "risk" | "scope_extension";
-export type ThreadSeverity = "low" | "medium" | "high";
-
-export type AnnotationStatus = "current" | "outdated" | "superseded" | "resolved";
+export type ThreadType = "decision" | "question" | "risk" | "scope_change";
 export type LineSide = "old" | "new";
-
-export type NoteKind = "rationale" | "context" | "explanation";
+export type ArtifactFreshness = "active" | "outdated";
 
 export type ThreadStatus = "open" | "resolved";
+export type TodoKind =
+  | "thread_reply_needed"
+  | "thread_waiting_on_user"
+  | "thread_anchor_outdated"
+  | "brief_outdated";
 
 export interface JsonObject {
   [key: string]: JsonValue;
@@ -58,46 +50,6 @@ export interface FileDiffPayload {
   removed: number;
 }
 
-export interface ReviewMarkRecord {
-  id: string;
-  projectRoot: string;
-  sessionId: string | null;
-  filePath: string;
-  startLine: number | null;
-  endLine: number | null;
-  lineSide: LineSide | null;
-  title: string;
-  category: ReviewMarkCategory;
-  severity: ReviewMarkSeverity;
-  status: AnnotationStatus;
-  reviewReason: string;
-  rationale: string | null;
-  anchor: JsonObject;
-  source: string;
-  author: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface NoteRecord {
-  id: string;
-  projectRoot: string;
-  sessionId: string | null;
-  filePath: string | null;
-  startLine: number | null;
-  endLine: number | null;
-  lineSide: LineSide | null;
-  title: string;
-  body: string;
-  kind: NoteKind;
-  status: AnnotationStatus;
-  anchor: JsonObject;
-  source: string;
-  author: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface ThreadMessageRecord {
   id: string;
   threadId: string;
@@ -117,8 +69,8 @@ export interface ThreadRecord {
   lineSide: LineSide | null;
   title: string;
   type: ThreadType;
-  severity: ThreadSeverity;
   status: ThreadStatus;
+  freshness: ArtifactFreshness;
   anchor: JsonObject;
   source: string;
   author: string;
@@ -133,6 +85,7 @@ export interface FileBriefRecord {
   filePath: string;
   summary: string;
   details: string | null;
+  freshness: ArtifactFreshness;
   source: string;
   author: string;
   createdAt: string;
@@ -149,7 +102,7 @@ export interface ChangedFileSummary {
 }
 
 export interface SearchResult {
-  kind: "mark" | "note" | "thread" | "file_brief";
+  kind: "thread" | "file_brief";
   id: string;
   title: string;
   excerpt: string;
@@ -157,11 +110,21 @@ export interface SearchResult {
   updatedAt: string;
 }
 
+export interface TodoRecord {
+  kind: TodoKind;
+  artifactKind: "thread" | "file_brief";
+  artifactId: string;
+  filePath: string | null;
+  title: string;
+  status: ThreadStatus | null;
+  freshness: ArtifactFreshness;
+  pendingFor: "agent" | "user" | null;
+  updatedAt: string;
+}
+
 export interface ProjectOverview {
   session: SessionRecord | null;
   changedFiles: ChangedFileSummary[];
-  marks: ReviewMarkRecord[];
-  notes: NoteRecord[];
   threads: ThreadRecord[];
   fileBriefs: FileBriefRecord[];
   recentEvents: EventRecord[];

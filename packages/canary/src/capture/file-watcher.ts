@@ -1,7 +1,7 @@
 import path from "node:path";
 import chokidar from "chokidar";
 import { createTwoFilesPatch } from "diff";
-import { appendEvent } from "canary-core";
+import { appendEvent, reconcileArtifactsForFileChange } from "canary-core";
 import type { CanaryConnection } from "canary-core";
 import { readTextFile, snapshotProjectFiles } from "./project-snapshot.js";
 
@@ -90,6 +90,13 @@ export async function startFileWatcher({
         added,
         removed
       }
+    });
+
+    await reconcileArtifactsForFileChange(connection, {
+      filePath: relativePath,
+      oldContent,
+      newContent,
+      patch
     });
   }
 

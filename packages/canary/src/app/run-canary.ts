@@ -3,7 +3,8 @@ import {
   applyMigrations,
   createSession,
   finishSession,
-  openConnection
+  openConnection,
+  resolveProjectRoot
 } from "canary-core";
 import type { AgentKind, SessionStatus } from "canary-core";
 import { startFileWatcher } from "../capture/file-watcher.js";
@@ -24,14 +25,16 @@ export async function runCanary({
   openUi,
   port
 }: RunCanaryParams): Promise<number> {
-  const projectRoot = process.cwd();
+  const launchCwd = process.cwd();
+  const projectRoot = resolveProjectRoot(launchCwd);
   const connection = openConnection(projectRoot);
   applyMigrations(connection);
 
   const session = await createSession(connection, {
     agentKind: agent,
     metadata: {
-      args: agentArgs
+      args: agentArgs,
+      launchCwd
     }
   });
 
@@ -48,7 +51,8 @@ export async function runCanary({
         message: "session_started",
         agent,
         args: agentArgs,
-        cwd: projectRoot
+        cwd: launchCwd,
+        projectRoot
       }
     });
 
@@ -73,7 +77,7 @@ export async function runCanary({
     const result = await runAgentProcess({
       agent,
       args: agentArgs,
-      cwd: projectRoot
+      cwd: launchCwd
     });
 
     finalStatus = result.exitCode === 0 ? "completed" : "failed";

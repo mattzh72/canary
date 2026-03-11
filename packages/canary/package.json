@@ -13,13 +13,14 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/cli/index.ts --format esm --dts --clean --out-dir dist/cli && vite build",
+    "build": "tsup src/cli/index.ts --format esm --dts --clean --out-dir dist/cli && tsup src/server/index.ts --format esm --dts --clean --out-dir dist/server && vite build",
     "dev": "tsx watch src/cli/index.ts",
     "lint": "eslint \"src/**/*.ts\" \"src/client/src/**/*.tsx\"",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@types/prismjs": "^1.26.6",
     "canary-core": "workspace:*",
     "canary-observers": "workspace:*",
     "chokidar": "^4.0.3",
@@ -27,14 +28,18 @@
     "express": "^5.1.0",
     "get-port": "^7.1.0",
     "open": "^10.1.0",
+    "prismjs": "^1.30.0",
     "react": "^19.0.0",
+    "react-markdown": "^10.1.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
     "@types/express": "^5.0.1",
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.2.1",
     "vite": "^6.2.1"
   }
 }

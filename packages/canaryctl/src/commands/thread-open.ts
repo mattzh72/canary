@@ -1,5 +1,5 @@
 import { createThread } from "canary-core";
-import type { ThreadSeverity, ThreadType } from "canary-core";
+import type { ThreadType } from "canary-core";
 import { printJson, printRecord } from "../output/render.js";
 import { withConnection } from "./context.js";
 import { createThreadAnchor, normalizeFilePath } from "./target.js";
@@ -10,7 +10,6 @@ interface ThreadOpenInput {
   startLine: number;
   endLine: number;
   type: ThreadType;
-  severity: ThreadSeverity;
   title: string;
   body: string;
   json?: boolean;
@@ -30,7 +29,6 @@ export async function runThreadOpen(input: ThreadOpenInput): Promise<void> {
       title: input.title,
       body: input.body,
       type: input.type,
-      severity: input.severity,
       source: "canaryctl",
       author: "agent"
     });
@@ -43,7 +41,7 @@ export async function runThreadOpen(input: ThreadOpenInput): Promise<void> {
     printRecord(
       thread.id,
       thread.title,
-      `${thread.filePath}:${thread.startLine}-${thread.endLine} · ${thread.type} · ${thread.severity}`
+      `${thread.filePath}:${thread.startLine}-${thread.endLine} · ${thread.type}`
     );
   });
 }

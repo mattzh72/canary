@@ -21,11 +21,11 @@ skills/              canonical agent skill bundle
 
 - `pnpm` workspaces
 - `TypeScript` on Node.js 20+
-- `better-sqlite3` for project-local persistence
+- `better-sqlite3` for per-user SQLite persistence
 - `React + Vite` for the review UI
 - `commander` for the CLIs
 
-Project state lives in `.canary/canary.db`.
+Project state lives under `~/.canary/projects/<project-hash>/canary.db`.
 
 ## Development
 
@@ -36,3 +36,41 @@ pnpm build
 ```
 
 The current rewrite pass is focused on the shared SQLite model and the separation between the runtime wrapper and `canaryctl`.
+
+## Local Install
+
+To install the local `canary` and `canaryctl` commands plus the Canary Codex skill from a source checkout, run:
+
+```bash
+pnpm install:local
+```
+
+This script:
+
+- builds the workspace
+- links `canary` and `canaryctl` into `~/.local/bin` by default
+- links the Canary skill into `$CODEX_HOME/skills/canary` or `~/.codex/skills/canary`
+
+Overrides:
+
+- set `CANARY_BIN_DIR` to install the commands into a different bin directory
+- set `CODEX_HOME` to install the skill into a different Codex home
+
+After installation:
+
+- ensure your bin directory is on `PATH`
+- restart Codex so it picks up the new skill
+
+To install just the canonical Canary skill through `canaryctl`, run one of:
+
+```bash
+canaryctl skill setup --codex
+canaryctl skill setup --claude-code
+```
+
+Verification:
+
+```bash
+canary --no-open codex --version
+canaryctl thread list --json
+```

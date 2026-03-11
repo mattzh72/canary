@@ -1,33 +1,52 @@
 ---
-name: canary
-description: Use Canary to leave review marks, rationale notes, and file briefs that help the engineer understand generated code.
+name: tracking-agent-changes-with-canary
+description: Tracks and presents the agent's file changes and durable review context for the user through Canary. Use in repositories with Canary when generated code introduces a non-obvious decision, question, risk, scope change, or file ownership update that should stay visible in diffs, threads, file briefs, and the todo queue, and when canaryctl should be used to keep that context current.
 ---
 
 # Canary
 
-Use Canary whenever you make non-obvious implementation decisions and want the engineer to keep a durable mental model of the evolving codebase.
+Canary has two surfaces:
 
-## Goals
+- `canary`: the app the user sees. It automatically tracks file changes during the session and shows diffs, threads, and file briefs in the local review UI.
+- `canaryctl`: the tool the agent uses to create and update that context.
 
-- leave line-anchored review marks for code the user should inspect
-- add rationale notes that explain why the implementation took a specific shape
-- update file briefs when a file's role or invariants materially change
-- search existing Canary history before repeating old explanations
+The user can:
 
-## Workflow
+- inspect what files changed
+- read the agent's threads and file briefs
+- reply to threads in the UI
 
-1. Before editing, search Canary for relevant context.
-2. After making a non-trivial change, add a review mark for the lines the engineer should inspect.
-3. Add a rationale note explaining the design decision, assumption, or tradeoff.
-4. If the file's current role is now different, update its file brief.
+Canary's durable artifacts are:
 
-## Commands
+- `threads`: focused review discussions for one issue, usually tied to a file and line range
+- `file briefs`: durable notes about what a file owns and what future editors should know
 
-```bash
-canaryctl search "<query>"
-canaryctl mark add path/to/file.ts:10-24 --title "Review title" --category design_decision --severity medium --review-reason "Why the user should look here" --rationale "Why the agent made this choice"
-canaryctl note add path/to/file.ts:10-24 --title "Rationale" --kind rationale --body "More context about the change"
-canaryctl explain file path/to/file.ts --summary "What this file now owns" --details "Important invariants or design details"
-```
+Use Canary when the user should be able to review a non-obvious change after the chat, not just read about it in the transcript.
 
-Keep marks selective. Only create them where human review is genuinely useful.
+Use these commands:
+
+- `canaryctl todo list --json` to see the agent's current cleanup queue. It can return items like threads waiting for an agent reply, threads waiting on the user, outdated thread anchors, and outdated file briefs.
+- `canaryctl thread list --file <path> --json` before opening a new thread
+- `canaryctl thread reply <thread-id> --body "<text>"` to continue an existing discussion
+- `canaryctl thread open <file> --start <line> --end <line> --type <decision|question|risk|scope_change> --title "<title>" --body "<text>"` for one concrete review-worthy issue
+- `canaryctl explain file <file> --summary "<summary>" [--details "<details>"]` when a file's role, boundary, or invariants changed
+- `canaryctl brief list --file <path> --json` to inspect file-brief state for a touched file
+
+Guidance:
+
+- Use `canaryctl` incrementally and often so the user can proactively see and respond to your design decisions.
+- Prefer one issue per thread.
+- Open threads only for changes a human should review deliberately.
+- Use briefs for durable file-level context, not diff summaries.
+- Check `canaryctl todo list --json` often while working, not just at the end.
+- Keep titles and bodies concise and specific.
+
+IMPORTANT:
+
+- Later edits can make existing context stale.
+- A thread becomes `outdated` when its old anchor can no longer be trusted.
+- A file brief becomes `outdated` when later edits may have made it stale.
+- Outdated items stay visible to the user.
+- If a thread is `outdated`, add a reply with the new context or open a new thread on the current lines.
+- If a file brief is `outdated`, run `canaryctl explain file ...` again with updated text.
+- If you are not fixing an outdated item now, leave it clearly pending; do not ignore it.

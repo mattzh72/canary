@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { JsonObject } from "canary-core";
 
@@ -10,7 +11,7 @@ function normalizeRelativePath(relativePath: string): string {
   return relativePath.split(path.sep).join("/");
 }
 
-export function normalizeFilePath(projectRoot: string, input: string): string {
+export function normalizeProjectPath(projectRoot: string, input: string): string {
   const file = input.trim();
   if (!file) {
     throw new Error("Missing required file path.");
@@ -28,6 +29,31 @@ export function normalizeFilePath(projectRoot: string, input: string): string {
   }
 
   return normalizeRelativePath(relativePath);
+}
+
+export function normalizeFilePath(projectRoot: string, input: string): string {
+  const normalizedPath = normalizeProjectPath(projectRoot, input);
+  const resolved = path.resolve(projectRoot, normalizedPath);
+
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(resolved);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        `Target file does not exist: ${input} (normalized: ${normalizedPath})`
+      );
+    }
+    throw error;
+  }
+
+  if (!stats.isFile()) {
+    throw new Error(
+      `Target path is not a file: ${input} (normalized: ${normalizedPath})`
+    );
+  }
+
+  return normalizedPath;
 }
 
 export function createFileAnchor(filePath: string): ParsedTarget {

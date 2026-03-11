@@ -2,21 +2,27 @@ export { applyMigrations } from "./db/migrate.js";
 export { openConnection } from "./db/connection.js";
 export { createId } from "./db/ids.js";
 export {
+  getCanaryHomeDir,
+  getProjectDbFile,
+  getProjectStateDir,
+  getProjectStorageKey,
+  resolveProjectRoot
+} from "./db/storage.js";
+export {
   addThreadMessage,
   appendEvent,
-  createNote,
-  createReviewMark,
   createSession,
   createThread,
   finishSession,
   getLatestSession,
   getProjectOverview,
   listFileBriefs,
-  listNotes,
   listRecentEvents,
-  listReviewMarks,
+  listTodos,
   listThreads,
+  reconcileArtifactsForFileChange,
   searchProject,
+  updateThreadStatus,
   upsertFileBrief
 } from "./repositories/project-repository.js";
 export type * from "./types/database.js";

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -13,9 +15,10 @@ import {
   finishSession,
   getProjectOverview,
   openConnection,
-  searchProject
+  reconcileArtifactsForFileChange
 } from "../packages/canary-core/dist/index.js";
 import { scenarioCatalog } from "./scenarios/index.mjs";
+import { createCanaryServer } from "../packages/canary/dist/server/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,20 +27,24 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const templateRoot = path.join(__dirname, "template");
 const workspaceRoot = path.join(__dirname, "workspace");
+const demoCanaryHome = path.join(
+  os.tmpdir(),
+  "canary-live-demo",
+  createHash("sha256").update(repoRoot).digest("hex").slice(0, 16)
+);
 const clientDistDir = path.join(repoRoot, "packages", "canary", "dist", "client");
 const canaryctlCli = path.join(repoRoot, "packages", "canaryctl", "dist", "cli", "index.js");
 const canaryPackageRequire = createRequire(
   path.join(repoRoot, "packages", "canary", "package.json")
 );
+process.env.CANARY_HOME = demoCanaryHome;
+process.env.CANARY_PROJECT_ROOT = workspaceRoot;
 
 const { default: chokidar } = await import(
   pathToFileURL(canaryPackageRequire.resolve("chokidar")).href
 );
 const { createTwoFilesPatch } = await import(
   pathToFileURL(canaryPackageRequire.resolve("diff")).href
-);
-const { default: express } = await import(
-  pathToFileURL(canaryPackageRequire.resolve("express")).href
 );
 const getPortModule = await import(
   pathToFileURL(canaryPackageRequire.resolve("get-port")).href
@@ -241,6 +248,13 @@ async function startFileWatcher({ connection, projectRoot, sessionId }) {
         removed
       }
     });
+
+    await reconcileArtifactsForFileChange(connection, {
+      filePath: relativePath,
+      oldContent,
+      newContent,
+      patch
+    });
   }
 
   watcher.on("add", async (absolutePath) => {
@@ -284,69 +298,11 @@ async function startFileWatcher({ connection, projectRoot, sessionId }) {
   };
 }
 
-async function createDemoServer({ connection, sessionId, requestedPort }) {
-  const app = express();
-  const port = requestedPort ?? (await getPort({ port: portNumbers(4300, 4399) }));
-
-  app.get("/health", (_request, response) => {
-    response.json({ ok: true });
-  });
-
-  app.get("/api/overview", async (_request, response, next) => {
-    try {
-      const overview = await getProjectOverview(connection, sessionId);
-      response.json(overview);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/search", async (request, response, next) => {
-    try {
-      const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
-      if (!query) {
-        response.json([]);
-        return;
-      }
-
-      const results = await searchProject(connection, query);
-      response.json(results);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.use(express.static(clientDistDir));
-  app.use((_request, response) => {
-    response.sendFile(path.join(clientDistDir, "index.html"));
-  });
-
-  const server = await new Promise((resolve) => {
-    const instance = app.listen(port, "127.0.0.1", () => resolve(instance));
-  });
-
-  return {
-    port,
-    url: `http://127.0.0.1:${port}`,
-    close() {
-      return new Promise((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
-        });
-      });
-    }
-  };
-}
-
 async function resetWorkspace() {
   await fs.rm(workspaceRoot, { recursive: true, force: true });
+  await fs.rm(demoCanaryHome, { recursive: true, force: true });
   await fs.mkdir(workspaceRoot, { recursive: true });
   await fs.cp(templateRoot, workspaceRoot, { recursive: true });
-  await fs.mkdir(path.join(workspaceRoot, ".canary"), { recursive: true });
 }
 
 async function sleep(ms) {
@@ -356,7 +312,8 @@ async function sleep(ms) {
 async function ensureBuiltArtifacts() {
   const requiredFiles = [
     path.join(clientDistDir, "index.html"),
-    canaryctlCli
+    canaryctlCli,
+    path.join(repoRoot, "packages", "canary", "dist", "server", "index.js")
   ];
 
   for (const requiredFile of requiredFiles) {
@@ -500,10 +457,7 @@ async function buildSummary(connection, sessionId) {
   return {
     sessionId,
     changedFiles: overview.changedFiles.length,
-    reviewItems:
-      overview.marks.length +
-      overview.notes.length +
-      overview.threads.length,
+    reviewItems: overview.threads.length,
     threads: overview.threads.length,
     fileBriefs: overview.fileBriefs.length,
     recentEvents: overview.recentEvents.length
@@ -611,10 +565,13 @@ async function runScenario({
       }
     });
 
-    server = await createDemoServer({
+    const serverPort =
+      requestedPort ?? (await getPort({ port: portNumbers(4300, 4399) }));
+
+    server = await createCanaryServer({
       connection,
       sessionId: session.id,
-      requestedPort
+      requestedPort: serverPort
     });
 
     watcher = await startFileWatcher({
