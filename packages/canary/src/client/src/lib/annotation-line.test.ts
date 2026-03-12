@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { resolveAnnotationSeveritiesForLine } from "./annotation-line.js";
+import { resolveAnnotationCategoriesForLine } from "./annotation-line.js";
 
-describe("resolveAnnotationSeveritiesForLine", () => {
+describe("resolveAnnotationCategoriesForLine", () => {
   it("prefers the side-specific key when present", () => {
     const annotatedLineSeverity = new Map<string, string[]>([
       ["new:17", ["high"]],
@@ -9,7 +9,7 @@ describe("resolveAnnotationSeveritiesForLine", () => {
     ]);
 
     expect(
-      resolveAnnotationSeveritiesForLine(annotatedLineSeverity, 17, "new"),
+      resolveAnnotationCategoriesForLine(annotatedLineSeverity, 17, "new"),
     ).toEqual(["high"]);
   });
 
@@ -17,7 +17,7 @@ describe("resolveAnnotationSeveritiesForLine", () => {
     const annotatedLineSeverity = new Map<string, string[]>([["17", ["medium"]]]);
 
     expect(
-      resolveAnnotationSeveritiesForLine(annotatedLineSeverity, 17, "new"),
+      resolveAnnotationCategoriesForLine(annotatedLineSeverity, 17, "new"),
     ).toEqual(["medium"]);
   });
 
@@ -28,7 +28,7 @@ describe("resolveAnnotationSeveritiesForLine", () => {
     ]);
 
     expect(
-      resolveAnnotationSeveritiesForLine(annotatedLineSeverity, 17, "old", {
+      resolveAnnotationCategoriesForLine(annotatedLineSeverity, 17, "old", {
         allowSideFallback: false,
       }),
     ).toBeUndefined();

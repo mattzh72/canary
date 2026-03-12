@@ -38,6 +38,47 @@ export async function readTextFile(filePath: string): Promise<string | null> {
   }
 }
 
+export async function listProjectFiles(projectRoot: string): Promise<string[]> {
+  const files: string[] = [];
+  const stack = [projectRoot];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+
+    let entries;
+    try {
+      entries = await fs.readdir(current, {
+        withFileTypes: true
+      });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const absolutePath = path.join(current, entry.name);
+      if (shouldIgnore(absolutePath)) {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        stack.push(absolutePath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      files.push(path.relative(projectRoot, absolutePath));
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
 export async function snapshotProjectFiles(projectRoot: string): Promise<Map<string, string>> {
   const files = new Map<string, string>();
   const stack = [projectRoot];

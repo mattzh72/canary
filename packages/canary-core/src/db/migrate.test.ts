@@ -45,6 +45,16 @@ describe("applyMigrations", () => {
           project_root TEXT NOT NULL
         );
 
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          project_root TEXT NOT NULL,
+          agent_kind TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          ended_at TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+
         CREATE TABLE notes (
           id TEXT PRIMARY KEY,
           project_root TEXT NOT NULL
@@ -134,6 +144,15 @@ describe("applyMigrations", () => {
           author TEXT NOT NULL,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE thread_messages (
+          id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          body TEXT NOT NULL,
+          source TEXT NOT NULL,
+          author TEXT NOT NULL,
+          created_at TEXT NOT NULL
         );
       `);
 

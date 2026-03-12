@@ -12,6 +12,7 @@ import type {
   ThreadMessagesTable
 } from "../types/database.js";
 import type {
+  ActorKind,
   ArtifactFreshness,
   ChangedFileSummary,
   EventKind,
@@ -33,6 +34,8 @@ import type {
 
 interface CreateSessionInput {
   agentKind: SessionRecord["agentKind"];
+  actorId?: string | null;
+  sessionToken?: string | null;
   metadata?: JsonObject;
 }
 
@@ -54,19 +57,25 @@ interface AnchorTarget {
 
 interface CreateThreadInput extends AnchorTarget {
   sessionId?: string | null;
+  authorId?: string | null;
   title: string;
   body: string;
   type: ThreadType;
   status?: ThreadStatus;
   source?: string;
   author?: string;
+  authorType?: ActorKind | null;
+  authorAvatarSvg?: string | null;
 }
 
 interface AddThreadMessageInput {
   threadId: string;
+  authorId?: string | null;
   body: string;
   source?: string;
   author?: string;
+  authorType?: ActorKind | null;
+  authorAvatarSvg?: string | null;
 }
 
 interface UpdateThreadStatusInput {
@@ -99,8 +108,18 @@ interface UpsertFileBriefInput {
   filePath: string;
   summary: string;
   details?: string | null;
+  authorId?: string | null;
   source?: string;
   author?: string;
+  authorType?: ActorKind | null;
+  authorAvatarSvg?: string | null;
+}
+
+interface ActorLookup {
+  id: string;
+  kind: ActorKind;
+  displayName: string;
+  avatarSvg: string;
 }
 
 interface ReconcileFileChangeInput {
@@ -128,7 +147,10 @@ function mapSession(row: Selectable<SessionsTable>): SessionRecord {
     status: row.status as SessionStatus,
     startedAt: row.started_at,
     endedAt: row.ended_at,
-    metadata: parseJsonObject(row.metadata_json)
+    metadata: parseJsonObject(row.metadata_json),
+    actorId: row.actor_id ?? null,
+    actorName: null,
+    actorAvatarSvg: null
   };
 }
 
@@ -153,7 +175,11 @@ function normalizeThreadType(type: string): ThreadType {
   return type as ThreadType;
 }
 
-function mapThread(row: Selectable<ThreadsTable>, messages: ThreadMessageRecord[]): ThreadRecord {
+function mapThread(
+  row: Selectable<ThreadsTable>,
+  messages: ThreadMessageRecord[],
+  actor?: ActorLookup | null
+): ThreadRecord {
   return {
     id: row.id,
     projectRoot: row.project_root,
@@ -169,24 +195,36 @@ function mapThread(row: Selectable<ThreadsTable>, messages: ThreadMessageRecord[
     anchor: parseJsonObject(row.anchor_json),
     source: row.source,
     author: row.author,
+    authorId: row.actor_id ?? actor?.id ?? null,
+    authorType: actor?.kind ?? null,
+    authorAvatarSvg: actor?.avatarSvg ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     messages
   };
 }
 
-function mapThreadMessage(row: Selectable<ThreadMessagesTable>): ThreadMessageRecord {
+function mapThreadMessage(
+  row: Selectable<ThreadMessagesTable>,
+  actor?: ActorLookup | null
+): ThreadMessageRecord {
   return {
     id: row.id,
     threadId: row.thread_id,
     body: row.body,
     source: row.source,
     author: row.author,
+    authorId: row.actor_id ?? actor?.id ?? null,
+    authorType: actor?.kind ?? null,
+    authorAvatarSvg: actor?.avatarSvg ?? null,
     createdAt: row.created_at
   };
 }
 
-function mapFileBrief(row: Selectable<FileBriefsTable>): FileBriefRecord {
+function mapFileBrief(
+  row: Selectable<FileBriefsTable>,
+  actor?: ActorLookup | null
+): FileBriefRecord {
   return {
     id: row.id,
     projectRoot: row.project_root,
@@ -196,9 +234,28 @@ function mapFileBrief(row: Selectable<FileBriefsTable>): FileBriefRecord {
     freshness: (row.freshness as ArtifactFreshness | null) ?? "active",
     source: row.source,
     author: row.author,
+    authorId: row.actor_id ?? actor?.id ?? null,
+    authorType: actor?.kind ?? null,
+    authorAvatarSvg: actor?.avatarSvg ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function classifyParticipant(authorType: ActorKind | null, author: string): "agent" | "user" | null {
+  if (authorType === "human") {
+    return "user";
+  }
+  if (authorType === "codex" || authorType === "claude") {
+    return "agent";
+  }
+  if (author === "user") {
+    return "user";
+  }
+  if (author === "agent") {
+    return "agent";
+  }
+  return null;
 }
 
 function getPendingFor(thread: ThreadRecord): "agent" | "user" | null {
@@ -210,13 +267,42 @@ function getPendingFor(thread: ThreadRecord): "agent" | "user" | null {
   if (!lastMessage) {
     return null;
   }
-  if (lastMessage.author === "agent") {
+  const participant = classifyParticipant(lastMessage.authorType, lastMessage.author);
+  if (participant === "agent") {
     return "user";
   }
-  if (lastMessage.author === "user") {
+  if (participant === "user") {
     return "agent";
   }
   return null;
+}
+
+async function loadActorMap(
+  connection: CanaryConnection,
+  actorIds: Iterable<string | null | undefined>
+): Promise<Map<string, ActorLookup>> {
+  const ids = [...new Set([...actorIds].filter((value): value is string => typeof value === "string"))];
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const rows = await connection.db
+    .selectFrom("actors")
+    .selectAll()
+    .where("id", "in", ids)
+    .execute();
+
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        id: row.id,
+        kind: row.kind as ActorKind,
+        displayName: row.display_name,
+        avatarSvg: row.avatar_svg
+      }
+    ])
+  );
 }
 
 function createAnchorPayload(target: AnchorTarget): JsonObject {
@@ -495,6 +581,8 @@ export async function createSession(
       id,
       project_root: connection.projectRoot,
       agent_kind: input.agentKind,
+      actor_id: input.actorId ?? null,
+      session_token: input.sessionToken ?? null,
       status: "running",
       started_at: startedAt,
       ended_at: null,
@@ -509,7 +597,10 @@ export async function createSession(
     status: "running",
     startedAt,
     endedAt: null,
-    metadata: input.metadata ?? {}
+    metadata: input.metadata ?? {},
+    actorId: input.actorId ?? null,
+    actorName: null,
+    actorAvatarSvg: null
   };
 }
 
@@ -607,6 +698,7 @@ export async function createThread(
         id,
         project_root: connection.projectRoot,
         session_id: input.sessionId ?? null,
+        actor_id: input.authorId ?? null,
         file_path: input.filePath ?? null,
         start_line: input.startLine ?? null,
         end_line: input.endLine ?? null,
@@ -628,6 +720,7 @@ export async function createThread(
       .values({
         id: messageId,
         thread_id: id,
+        actor_id: input.authorId ?? null,
         body: input.body,
         source: input.source ?? "canaryctl",
         author: input.author ?? "agent",
@@ -651,6 +744,9 @@ export async function createThread(
     anchor,
     source: input.source ?? "canaryctl",
     author: input.author ?? "agent",
+    authorId: input.authorId ?? null,
+    authorType: input.authorType ?? null,
+    authorAvatarSvg: input.authorAvatarSvg ?? null,
     createdAt: now,
     updatedAt: now,
     messages: [
@@ -660,6 +756,9 @@ export async function createThread(
         body: input.body,
         source: input.source ?? "canaryctl",
         author: input.author ?? "agent",
+        authorId: input.authorId ?? null,
+        authorType: input.authorType ?? null,
+        authorAvatarSvg: input.authorAvatarSvg ?? null,
         createdAt: now
       }
     ]
@@ -679,6 +778,7 @@ export async function addThreadMessage(
       .values({
         id,
         thread_id: input.threadId,
+        actor_id: input.authorId ?? null,
         body: input.body,
         source: input.source ?? "canaryctl",
         author: input.author ?? "agent",
@@ -699,6 +799,9 @@ export async function addThreadMessage(
     body: input.body,
     source: input.source ?? "canaryctl",
     author: input.author ?? "agent",
+    authorId: input.authorId ?? null,
+    authorType: input.authorType ?? null,
+    authorAvatarSvg: input.authorAvatarSvg ?? null,
     createdAt: now
   };
 }
@@ -726,7 +829,16 @@ export async function updateThreadStatus(
     .orderBy("created_at", "asc")
     .execute();
 
-  return mapThread(row, messages.map(mapThreadMessage));
+  const actorMap = await loadActorMap(connection, [
+    row.actor_id,
+    ...messages.map((message) => message.actor_id)
+  ]);
+
+  return mapThread(
+    row,
+    messages.map((message) => mapThreadMessage(message, actorMap.get(message.actor_id ?? ""))),
+    actorMap.get(row.actor_id ?? "")
+  );
 }
 
 export async function listThreads(
@@ -766,14 +878,21 @@ export async function listThreads(
     .orderBy("created_at", "asc")
     .execute();
 
+  const actorMap = await loadActorMap(connection, [
+    ...rows.map((row) => row.actor_id),
+    ...messages.map((message) => message.actor_id)
+  ]);
+
   const byThread = new Map<string, ThreadMessageRecord[]>();
-  for (const message of messages.map(mapThreadMessage)) {
+  for (const message of messages.map((row) => mapThreadMessage(row, actorMap.get(row.actor_id ?? "")))) {
     const bucket = byThread.get(message.threadId) ?? [];
     bucket.push(message);
     byThread.set(message.threadId, bucket);
   }
 
-  const threads = rows.map((row) => mapThread(row, byThread.get(row.id) ?? []));
+  const threads = rows.map((row) =>
+    mapThread(row, byThread.get(row.id) ?? [], actorMap.get(row.actor_id ?? ""))
+  );
   const filteredThreads = options.pendingFor
     ? threads.filter((thread) => {
         if (thread.status !== "open") {
@@ -785,9 +904,8 @@ export async function listThreads(
           return false;
         }
 
-        return options.pendingFor === "agent"
-          ? lastMessage.author === "user"
-          : lastMessage.author === "agent";
+        const participant = classifyParticipant(lastMessage.authorType, lastMessage.author);
+        return options.pendingFor === "agent" ? participant === "user" : participant === "agent";
       })
     : threads;
 
@@ -807,6 +925,15 @@ export async function upsertFileBrief(
 
   const now = new Date().toISOString();
   const id = existing?.id ?? createId("brief");
+  const briefActor =
+    input.authorType
+      ? {
+          id: input.authorId ?? "",
+          kind: input.authorType,
+          displayName: input.author ?? "agent",
+          avatarSvg: input.authorAvatarSvg ?? ""
+        }
+      : null;
 
   if (existing) {
     const updated = await connection.db
@@ -815,6 +942,7 @@ export async function upsertFileBrief(
         summary: input.summary,
         details: input.details ?? null,
         freshness: "active",
+        actor_id: input.authorId ?? null,
         source: input.source ?? "canaryctl",
         author: input.author ?? "agent",
         updated_at: now
@@ -822,7 +950,7 @@ export async function upsertFileBrief(
       .where("id", "=", existing.id)
       .returningAll()
       .executeTakeFirstOrThrow();
-    return mapFileBrief(updated);
+    return mapFileBrief(updated, briefActor);
   }
 
   const inserted = await connection.db
@@ -830,6 +958,7 @@ export async function upsertFileBrief(
     .values({
       id,
       project_root: connection.projectRoot,
+      actor_id: input.authorId ?? null,
       file_path: input.filePath,
       summary: input.summary,
       details: input.details ?? null,
@@ -842,7 +971,7 @@ export async function upsertFileBrief(
     .returningAll()
     .executeTakeFirstOrThrow();
 
-  return mapFileBrief(inserted);
+  return mapFileBrief(inserted, briefActor);
 }
 
 export async function listFileBriefs(
@@ -871,7 +1000,8 @@ export async function listFileBriefs(
     .limit(limit)
     .execute();
 
-  return rows.map(mapFileBrief);
+  const actorMap = await loadActorMap(connection, rows.map((row) => row.actor_id));
+  return rows.map((row) => mapFileBrief(row, actorMap.get(row.actor_id ?? "")));
 }
 
 export async function reconcileArtifactsForFileChange(
@@ -1100,13 +1230,10 @@ export async function getProjectOverview(
         .executeTakeFirst();
 
   const selectedSession = session ? mapSession(session) : null;
-  const threads = await listThreads(connection, 12);
-  const fileBriefs = selectedSession
-    ? await listFileBriefs(connection, {
-        limit: 20,
-        updatedSince: selectedSession.startedAt
-      })
-    : await listFileBriefs(connection, 20);
+  const threads = await listThreads(connection, 500);
+  const fileBriefs = await listFileBriefs(connection, {
+    limit: 500
+  });
   const recentEvents = selectedSession
     ? await listRecentEvents(connection, selectedSession.id, 30)
     : [];
@@ -1138,8 +1265,21 @@ export async function getProjectOverview(
     });
   }
 
+  const sessionActorMap = selectedSession?.actorId
+    ? await loadActorMap(connection, [selectedSession.actorId])
+    : new Map<string, ActorLookup>();
+  const sessionActor = selectedSession?.actorId
+    ? sessionActorMap.get(selectedSession.actorId) ?? null
+    : null;
+
   return {
-    session: selectedSession,
+    session: selectedSession
+      ? {
+          ...selectedSession,
+          actorName: sessionActor?.displayName ?? selectedSession.actorName,
+          actorAvatarSvg: sessionActor?.avatarSvg ?? selectedSession.actorAvatarSvg
+        }
+      : null,
     changedFiles: [...changedFilesMap.values()].sort((left, right) =>
       right.lastUpdatedAt.localeCompare(left.lastUpdatedAt)
     ),

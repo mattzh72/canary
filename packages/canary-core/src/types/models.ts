@@ -1,4 +1,5 @@
 export type AgentKind = "codex" | "claude";
+export type ActorKind = AgentKind | "human" | "monitor";
 
 export type SessionStatus = "running" | "completed" | "failed" | "aborted";
 
@@ -26,11 +27,14 @@ export type JsonValue = string | number | boolean | null | JsonObject | JsonValu
 export interface SessionRecord {
   id: string;
   projectRoot: string;
-  agentKind: AgentKind;
+  agentKind: ActorKind;
   status: SessionStatus;
   startedAt: string;
   endedAt: string | null;
   metadata: JsonObject;
+  actorId: string | null;
+  actorName: string | null;
+  actorAvatarSvg: string | null;
 }
 
 export interface EventRecord {
@@ -56,6 +60,9 @@ export interface ThreadMessageRecord {
   body: string;
   source: string;
   author: string;
+  authorId: string | null;
+  authorType: ActorKind | null;
+  authorAvatarSvg: string | null;
   createdAt: string;
 }
 
@@ -74,6 +81,9 @@ export interface ThreadRecord {
   anchor: JsonObject;
   source: string;
   author: string;
+  authorId: string | null;
+  authorType: ActorKind | null;
+  authorAvatarSvg: string | null;
   createdAt: string;
   updatedAt: string;
   messages: ThreadMessageRecord[];
@@ -88,6 +98,9 @@ export interface FileBriefRecord {
   freshness: ArtifactFreshness;
   source: string;
   author: string;
+  authorId: string | null;
+  authorType: ActorKind | null;
+  authorAvatarSvg: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -128,4 +141,17 @@ export interface ProjectOverview {
   threads: ThreadRecord[];
   fileBriefs: FileBriefRecord[];
   recentEvents: EventRecord[];
+}
+
+export interface StartedAgentSession {
+  session: SessionRecord;
+  sessionToken: string;
+}
+
+export interface ResolvedActorIdentity {
+  sessionId: string | null;
+  authorId: string | null;
+  author: string;
+  authorType: ActorKind | null;
+  authorAvatarSvg: string | null;
 }

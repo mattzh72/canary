@@ -7,13 +7,16 @@ import { applyMigrations } from "../db/migrate.js";
 import { getProjectStateDir } from "../db/storage.js";
 import {
   addThreadMessage,
+  appendEvent,
+  createSession,
   createThread,
+  getProjectOverview,
   listFileBriefs,
   listTodos,
-  upsertFileBrief,
   listThreads,
   reconcileArtifactsForFileChange,
-  updateThreadStatus
+  updateThreadStatus,
+  upsertFileBrief
 } from "./project-repository.js";
 
 const tempDirs: string[] = [];
@@ -476,6 +479,68 @@ describe("listTodos", () => {
       expect(items.find((item) => item.kind === "thread_waiting_on_user")?.artifactId).toBe(
         waitingOnUser.id
       );
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("keeps threads and briefs project-global while changed files stay session-scoped", async () => {
+    const connection = createTestConnection();
+    const filePath = "src/global-review.ts";
+
+    writeProjectFile(connection.projectRoot, filePath, ["export const value = 1;", ""].join("\n"));
+
+    try {
+      const firstSession = await createSession(connection, {
+        agentKind: "codex"
+      });
+
+      await createThread(connection, {
+        sessionId: firstSession.id,
+        filePath,
+        startLine: 1,
+        endLine: 1,
+        lineSide: "new",
+        title: "Global thread",
+        body: "Keep this discussion visible across runs.",
+        type: "decision"
+      });
+      await upsertFileBrief(connection, {
+        filePath,
+        summary: "Durable brief for this file."
+      });
+
+      const secondSession = await createSession(connection, {
+        agentKind: "codex"
+      });
+
+      await appendEvent(connection, {
+        sessionId: secondSession.id,
+        kind: "file_diff",
+        source: "watcher",
+        payload: {
+          filePath,
+          eventType: "change",
+          patch: [
+            `Index: ${filePath}`,
+            "===================================================================",
+            `--- ${filePath}`,
+            `+++ ${filePath}`,
+            "@@ -1 +1 @@",
+            "-export const value = 1;",
+            "+export const value = 2;",
+            ""
+          ].join("\n"),
+          added: 1,
+          removed: 1
+        }
+      });
+
+      const overview = await getProjectOverview(connection, secondSession.id);
+
+      expect(overview.changedFiles.map((item) => item.filePath)).toEqual([filePath]);
+      expect(overview.threads.map((thread) => thread.filePath)).toContain(filePath);
+      expect(overview.fileBriefs.map((brief) => brief.filePath)).toContain(filePath);
     } finally {
       connection.close();
     }

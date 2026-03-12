@@ -11,11 +11,12 @@ import { promisify } from "node:util";
 import {
   appendEvent,
   applyMigrations,
-  createSession,
+  createMonitorSession,
   finishSession,
   getProjectOverview,
   openConnection,
-  reconcileArtifactsForFileChange
+  reconcileArtifactsForFileChange,
+  startAgentSession
 } from "../packages/canary-core/dist/index.js";
 import { scenarioCatalog } from "./scenarios/index.mjs";
 import { createCanaryServer } from "../packages/canary/dist/server/index.js";
@@ -364,11 +365,14 @@ async function appendDemoEvent(connection, sessionId, step) {
   });
 }
 
-async function runCanaryctl(args, capture) {
+async function runCanaryctl(args, capture, sessionToken) {
   const commandArgs = [canaryctlCli, ...args];
   const result = await execFileAsync(process.execPath, commandArgs, {
     cwd: workspaceRoot,
-    env: process.env
+    env: {
+      ...process.env,
+      CANARY_SESSION_TOKEN: sessionToken ?? process.env.CANARY_SESSION_TOKEN
+    }
   });
 
   const stdout = result.stdout.trim();
@@ -427,7 +431,7 @@ async function executeStep(context, step, index, total) {
       await deleteWorkspaceFile(step.path);
       return;
     case "append_event":
-      await appendDemoEvent(context.connection, context.session.id, step);
+      await appendDemoEvent(context.connection, context.monitorSession.id, step);
       return;
     case "canaryctl": {
       const args = [...step.args];
@@ -441,7 +445,11 @@ async function executeStep(context, step, index, total) {
         }
         args.splice(2, 0, threadId);
       }
-      const captureResult = await runCanaryctl(args, step.capture ?? null);
+      const captureResult = await runCanaryctl(
+        args,
+        step.capture ?? null,
+        context.agentSessionToken
+      );
       if (captureResult) {
         Object.assign(context.captures, captureResult);
       }
@@ -478,36 +486,45 @@ async function runScenario({
   const connection = openConnection(workspaceRoot);
   applyMigrations(connection);
 
-  const session = await createSession(connection, {
-    agentKind: "codex",
-    metadata: {
+  const monitorSession = await createMonitorSession(connection, {
+    mode: "live-demo",
+    scenario: scenario.name,
+    seed: scenario.seed,
+    templateRoot: path.relative(repoRoot, templateRoot)
+  });
+  const { session: agentSession, sessionToken: agentSessionToken } = await startAgentSession(
+    connection,
+    "codex",
+    {
       mode: "live-demo",
       scenario: scenario.name,
       seed: scenario.seed,
       templateRoot: path.relative(repoRoot, templateRoot)
     }
-  });
+  );
 
   let finalStatus = "completed";
   let server = null;
   let watcher = null;
   let resourcesClosed = false;
-  let sessionFinalized = false;
+  let sessionsFinalized = false;
 
   const context = {
     connection,
-    session,
+    monitorSession,
+    agentSession,
+    agentSessionToken,
     captures: {}
   };
 
-  const finalizeSession = async (status) => {
-    if (sessionFinalized) {
+  const finalizeSessions = async (status) => {
+    if (sessionsFinalized) {
       return;
     }
-    sessionFinalized = true;
+    sessionsFinalized = true;
     finalStatus = status;
     await appendEvent(connection, {
-      sessionId: session.id,
+      sessionId: monitorSession.id,
       kind: "session_status",
       source: "canary",
       payload: {
@@ -519,7 +536,8 @@ async function runScenario({
       await watcher.close();
       watcher = null;
     }
-    await finishSession(connection, session.id, finalStatus);
+    await finishSession(connection, monitorSession.id, finalStatus);
+    await finishSession(connection, agentSession.id, finalStatus);
   };
 
   const closeResources = async () => {
@@ -536,53 +554,59 @@ async function runScenario({
 
   const shutdown = async (status) => {
     if (status) {
-      await finalizeSession(status);
+      await finalizeSessions(status);
     }
-    const summary = await buildSummary(connection, session.id);
+    const summary = await buildSummary(connection, monitorSession.id);
     await closeResources();
     return summary;
   };
 
   const handleSignal = async () => {
     process.stdout.write("\nStopping live demo...\n");
-    const summary = await shutdown(sessionFinalized ? null : "aborted");
+    const summary = await shutdown(sessionsFinalized ? null : "aborted");
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-    process.exit(sessionFinalized ? 0 : 130);
+    process.exit(sessionsFinalized ? 0 : 130);
   };
 
   process.once("SIGINT", handleSignal);
   process.once("SIGTERM", handleSignal);
 
+  let serverPort = null;
+
   try {
     await appendEvent(connection, {
-      sessionId: session.id,
+      sessionId: monitorSession.id,
       kind: "session_status",
       source: "canary",
       payload: {
         message: "session_started",
         scenario: scenario.name,
-        intervalMs
+        intervalMs,
+        actorName: agentSession.actorName
       }
     });
 
-    const serverPort =
-      requestedPort ?? (await getPort({ port: portNumbers(4300, 4399) }));
+    serverPort = requestedPort ?? (await getPort({ port: portNumbers(4300, 4399) }));
 
     server = await createCanaryServer({
       connection,
-      sessionId: session.id,
+      sessionId: monitorSession.id,
       requestedPort: serverPort
     });
 
     watcher = await startFileWatcher({
       connection,
       projectRoot: workspaceRoot,
-      sessionId: session.id
+      sessionId: monitorSession.id
     });
+
+    process.env.CANARY_SESSION_TOKEN = agentSessionToken;
 
     process.stdout.write(`Live demo ready at ${server.url}\n`);
     process.stdout.write(`Workspace: ${workspaceRoot}\n`);
     process.stdout.write(`Scenario: ${scenario.name} (${scenario.seed})\n`);
+    process.stdout.write(`Monitor: ${monitorSession.actorName ?? "canary-watchtower"}\n`);
+    process.stdout.write(`Agent: ${agentSession.actorName ?? "codex"}\n`);
 
     if (openUi) {
       await maybeOpenBrowser(server.url);
@@ -598,7 +622,7 @@ async function runScenario({
             ? 0
             : step.type === "write_file" || step.type === "delete_file"
               ? Math.max(intervalMs, WATCHER_SETTLE_MS)
-            : intervalMs;
+              : intervalMs;
       if (pauseMs > 0) {
         await sleep(pauseMs);
       }
@@ -606,8 +630,8 @@ async function runScenario({
 
     await sleep(WATCHER_SETTLE_MS);
 
-    await finalizeSession("completed");
-    const summary = await buildSummary(connection, session.id);
+    await finalizeSessions("completed");
+    const summary = await buildSummary(connection, monitorSession.id);
 
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 
@@ -621,7 +645,7 @@ async function runScenario({
   } catch (error) {
     finalStatus = "failed";
     await appendEvent(connection, {
-      sessionId: session.id,
+      sessionId: monitorSession.id,
       kind: "warning",
       source: "canary",
       payload: {
@@ -631,8 +655,9 @@ async function runScenario({
     });
     throw error;
   } finally {
+    delete process.env.CANARY_SESSION_TOKEN;
     if (!resourcesClosed && (!hold || finalStatus === "failed")) {
-      await shutdown(sessionFinalized ? null : finalStatus === "failed" ? "failed" : "aborted");
+      await shutdown(sessionsFinalized ? null : finalStatus === "failed" ? "failed" : "aborted");
     }
     process.removeListener("SIGINT", handleSignal);
     process.removeListener("SIGTERM", handleSignal);

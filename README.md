@@ -2,7 +2,7 @@
 
 Canary is being rewritten as a workspace with three coordinated products:
 
-- `canary`: the runtime wrapper that launches Codex or Claude Code, captures project changes, persists review state, and serves the browser UI
+- `canary`: the local monitor and wrapped-agent launcher that serves the browser UI, watches repo changes, and starts attributed Codex or Claude sessions
 - `canaryctl`: the local review CLI that writes typed review threads and file briefs directly into SQLite
 - `skills`: agent instructions that teach Codex and Claude how to use `canaryctl`
 
@@ -10,7 +10,7 @@ Canary is being rewritten as a workspace with three coordinated products:
 
 ```text
 packages/
-  canary/            runtime wrapper + React/Vite UI
+  canary/            monitor + wrapped agent launcher + React/Vite UI
   canaryctl/         review CLI
   canary-core/       schema, migrations, repositories, shared types
   canary-observers/  agent adapter definitions
@@ -35,7 +35,7 @@ pnpm install
 pnpm build
 ```
 
-The current rewrite pass is focused on the shared SQLite model and the separation between the runtime wrapper and `canaryctl`.
+The current rewrite pass is focused on the shared SQLite model, actor-backed authorship, and the separation between the monitor, wrapped agent sessions, and `canaryctl`.
 
 ## Local Install
 
@@ -71,6 +71,7 @@ canaryctl skill setup --claude-code
 Verification:
 
 ```bash
-canary --no-open codex --version
+canary serve --no-open
+canary codex --version
 canaryctl thread list --json
 ```

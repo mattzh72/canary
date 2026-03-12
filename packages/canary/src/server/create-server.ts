@@ -6,10 +6,12 @@ import getPort, { portNumbers } from "get-port";
 import {
   addThreadMessage,
   getProjectOverview,
+  resolveCallerIdentity,
   searchProject,
   updateThreadStatus
 } from "canary-core";
 import type { CanaryConnection } from "canary-core";
+import { listProjectFiles } from "../capture/project-snapshot.js";
 
 const MAX_FILE_SIZE = 512 * 1024;
 
@@ -42,9 +44,7 @@ export async function createCanaryServer({
   app.use(express.json());
 
   app.get("/health", (_request, response) => {
-    response.json({
-      ok: true
-    });
+    response.json({ ok: true });
   });
 
   app.get("/api/overview", async (_request, response, next) => {
@@ -83,6 +83,15 @@ export async function createCanaryServer({
     }
   });
 
+  app.get("/api/tree", async (_request, response, next) => {
+    try {
+      const paths = await listProjectFiles(connection.projectRoot);
+      response.json({ paths });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/search", async (request, response, next) => {
     try {
       const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
@@ -113,11 +122,15 @@ export async function createCanaryServer({
         return;
       }
 
+      const caller = await resolveCallerIdentity(connection, undefined, true);
       const message = await addThreadMessage(connection, {
         threadId,
         body,
         source: "canary",
-        author: "user"
+        author: caller.author,
+        authorId: caller.authorId,
+        authorType: caller.authorType,
+        authorAvatarSvg: caller.authorAvatarSvg
       });
 
       response.status(201).json(message);

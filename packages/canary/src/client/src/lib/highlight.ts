@@ -22,6 +22,9 @@ const languageByExtension: Record<string, string> = {
   py: "python"
 };
 
+const HIGHLIGHT_CACHE_LIMIT = 4000;
+const highlightCache = new Map<string, { prefix: string | null; html: string }>();
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -35,16 +38,44 @@ function languageForFile(filePath: string): string | null {
   return languageByExtension[filePath.slice(dot + 1)] ?? null;
 }
 
+function cacheHighlightedLine(
+  cacheKey: string,
+  value: { prefix: string | null; html: string }
+): { prefix: string | null; html: string } {
+  if (highlightCache.has(cacheKey)) {
+    highlightCache.delete(cacheKey);
+  }
+  highlightCache.set(cacheKey, value);
+
+  while (highlightCache.size > HIGHLIGHT_CACHE_LIMIT) {
+    const oldestKey = highlightCache.keys().next().value;
+    if (typeof oldestKey !== "string") {
+      break;
+    }
+    highlightCache.delete(oldestKey);
+  }
+
+  return value;
+}
+
 export function highlightDiffLine(
   raw: string,
   filePath: string,
   lineClass: string
 ): { prefix: string | null; html: string } {
+  const cacheKey = `${filePath}\u0000${lineClass}\u0000${raw}`;
+  const cached = highlightCache.get(cacheKey);
+  if (cached) {
+    highlightCache.delete(cacheKey);
+    highlightCache.set(cacheKey, cached);
+    return cached;
+  }
+
   if (lineClass === "diff-hunk" || lineClass === "diff-meta") {
-    return {
+    return cacheHighlightedLine(cacheKey, {
       prefix: null,
       html: escapeHtml(raw || "\u00a0")
-    };
+    });
   }
 
   let prefix: string | null = null;
@@ -64,5 +95,5 @@ export function highlightDiffLine(
     ? Prism.highlight(content || " ", grammar, language)
     : escapeHtml(content || "\u00a0");
 
-  return { prefix, html };
+  return cacheHighlightedLine(cacheKey, { prefix, html });
 }

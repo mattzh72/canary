@@ -116,6 +116,16 @@
   overflow: visible;
 }
 
+.syntax-line {
+  white-space: inherit;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.syntax-line .token {
+  white-space: inherit;
+}
+
 .syntax-line .token.comment,
 .syntax-line .token.prolog,
 .syntax-line .token.doctype,

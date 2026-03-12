@@ -37,19 +37,41 @@ interface ThreadListItem {
   pendingFor: "agent" | "user" | null;
 }
 
+function classifyParticipant(thread: ThreadRecord): "agent" | "user" | null {
+  const lastMessage = thread.messages.at(-1);
+  if (!lastMessage) {
+    return null;
+  }
+
+  if (lastMessage.authorType === "human") {
+    return "user";
+  }
+
+  if (lastMessage.authorType === "codex" || lastMessage.authorType === "claude") {
+    return "agent";
+  }
+
+  if (lastMessage.author === "user") {
+    return "user";
+  }
+
+  if (lastMessage.author === "agent") {
+    return "agent";
+  }
+
+  return null;
+}
+
 function getPendingFor(thread: ThreadRecord): "agent" | "user" | null {
   if (thread.status !== "open") {
     return null;
   }
 
-  const lastMessage = thread.messages.at(-1);
-  if (!lastMessage) {
-    return null;
-  }
-  if (lastMessage.author === "agent") {
+  const participant = classifyParticipant(thread);
+  if (participant === "agent") {
     return "user";
   }
-  if (lastMessage.author === "user") {
+  if (participant === "user") {
     return "agent";
   }
   return null;

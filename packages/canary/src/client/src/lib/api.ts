@@ -6,6 +6,10 @@ import type {
   ThreadStatus
 } from "canary-core";
 
+interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
   const rawBody = await response.text();
@@ -39,18 +43,45 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
   return parsedBody as T;
 }
 
-export async function fetchOverview(): Promise<ProjectOverview> {
-  const response = await fetch("/api/overview");
+export async function fetchOverview(
+  options: RequestOptions = {}
+): Promise<ProjectOverview> {
+  const response = await fetch("/api/overview", {
+    signal: options.signal
+  });
   return parseJsonResponse<ProjectOverview>(response, "Failed to fetch overview");
 }
 
-export async function searchCanary(query: string): Promise<SearchResult[]> {
-  const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+export async function fetchProjectTree(
+  options: RequestOptions = {}
+): Promise<string[]> {
+  const response = await fetch("/api/tree", {
+    signal: options.signal
+  });
+  const data = await parseJsonResponse<{ paths: string[] }>(
+    response,
+    "Failed to fetch project tree"
+  );
+  return data.paths;
+}
+
+export async function searchCanary(
+  query: string,
+  options: RequestOptions = {}
+): Promise<SearchResult[]> {
+  const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+    signal: options.signal
+  });
   return parseJsonResponse<SearchResult[]>(response, "Failed to search Canary");
 }
 
-export async function fetchFileContent(filePath: string): Promise<string> {
-  const response = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
+export async function fetchFileContent(
+  filePath: string,
+  options: RequestOptions = {}
+): Promise<string> {
+  const response = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`, {
+    signal: options.signal
+  });
   const data = await parseJsonResponse<{ content: string }>(
     response,
     "Failed to fetch file"

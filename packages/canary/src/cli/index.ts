@@ -2,24 +2,26 @@
 
 import process from "node:process";
 import { isSupportedAgent } from "canary-observers";
-import { runCanary } from "../app/run-canary.js";
+import { runAgentWrapper, runServe } from "../app/run-canary.js";
 
 interface ParsedArgs {
-  agent: string | null;
+  command: "serve" | string | null;
   agentArgs: string[];
   openUi: boolean;
   port?: number;
 }
 
 function usage(): void {
-  process.stderr.write("Usage: canary [--no-open] [--port <number>] <codex|claude> [agent-args...]\n");
+  process.stderr.write(
+    "Usage: canary serve [--no-open] [--port <number>] | canary <codex|claude> [agent-args...]\n"
+  );
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
   const args = [...argv];
   let openUi = true;
   let port: number | undefined;
-  let agent: string | null = null;
+  let command: string | null = null;
   const agentArgs: string[] = [];
 
   while (args.length > 0) {
@@ -28,12 +30,12 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    if (!agent && current === "--no-open") {
+    if ((!command || command === "serve") && current === "--no-open") {
       openUi = false;
       continue;
     }
 
-    if (!agent && current === "--port") {
+    if ((!command || command === "serve") && current === "--port") {
       const value = args.shift();
       if (!value || Number.isNaN(Number(value))) {
         throw new Error("`--port` expects a number.");
@@ -42,8 +44,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    if (!agent) {
-      agent = current;
+    if (!command) {
+      command = current;
       continue;
     }
 
@@ -51,7 +53,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   return {
-    agent,
+    command,
     agentArgs,
     openUi,
     port
@@ -60,16 +62,26 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 async function main(): Promise<number> {
   const parsed = parseArgs(process.argv.slice(2));
-  if (!parsed.agent || !isSupportedAgent(parsed.agent)) {
+  if (!parsed.command) {
     usage();
     return 1;
   }
 
-  return runCanary({
-    agent: parsed.agent,
-    agentArgs: parsed.agentArgs,
-    openUi: parsed.openUi,
-    port: parsed.port
+  if (parsed.command === "serve") {
+    return runServe({
+      openUi: parsed.openUi,
+      port: parsed.port
+    });
+  }
+
+  if (!isSupportedAgent(parsed.command)) {
+    usage();
+    return 1;
+  }
+
+  return runAgentWrapper({
+    agent: parsed.command,
+    agentArgs: parsed.agentArgs
   });
 }
 

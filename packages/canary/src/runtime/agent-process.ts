@@ -11,12 +11,14 @@ interface RunAgentProcessParams {
   agent: AgentKind;
   args: string[];
   cwd: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 export function runAgentProcess({
   agent,
   args,
-  cwd
+  cwd,
+  env
 }: RunAgentProcessParams): Promise<AgentRunResult> {
   const definition = getAgentDefinition(agent);
 
@@ -24,7 +26,7 @@ export function runAgentProcess({
     const child = spawn(definition.command, args, {
       cwd,
       stdio: "inherit",
-      env: process.env
+      env: env ?? process.env
     });
 
     child.once("error", (error) => {

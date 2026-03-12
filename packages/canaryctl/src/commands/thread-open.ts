@@ -16,11 +16,13 @@ interface ThreadOpenInput {
 }
 
 export async function runThreadOpen(input: ThreadOpenInput): Promise<void> {
-  await withConnection(input.cwd, async ({ connection, latestSessionId, projectRoot }) => {
+  await withConnection(input.cwd, async ({ connection, projectRoot, resolveWriteCaller }) => {
+    const caller = await resolveWriteCaller();
     const filePath = normalizeFilePath(projectRoot, input.file);
     const target = createThreadAnchor(filePath, input.startLine, input.endLine);
     const thread = await createThread(connection, {
-      sessionId: latestSessionId,
+      sessionId: caller.sessionId,
+      authorId: caller.authorId,
       filePath: target.filePath,
       startLine: input.startLine,
       endLine: input.endLine,
@@ -30,7 +32,9 @@ export async function runThreadOpen(input: ThreadOpenInput): Promise<void> {
       body: input.body,
       type: input.type,
       source: "canaryctl",
-      author: "agent"
+      author: caller.author,
+      authorType: caller.authorType,
+      authorAvatarSvg: caller.authorAvatarSvg
     });
 
     if (input.json) {

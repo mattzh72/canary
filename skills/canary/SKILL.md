@@ -7,7 +7,7 @@ description: Tracks and presents the agent's file changes and durable review con
 
 Canary has two surfaces:
 
-- `canary`: the app the user sees. It automatically tracks file changes during the session and shows diffs, threads, and file briefs in the local review UI.
+- `canary`: the repo-local monitor and wrapped-agent launcher. `canary serve` watches repo changes and serves the local review UI. `canary codex` / `canary claude` start attributed agent sessions.
 - `canaryctl`: the tool the agent uses to create and update that context.
 
 The user can:
@@ -22,6 +22,12 @@ Canary's durable artifacts are:
 - `file briefs`: durable notes about what a file owns and what future editors should know
 
 Use Canary when the user should be able to review a non-obvious change after the chat, not just read about it in the transcript.
+
+Authorship rules:
+
+- If you are running inside a wrapped Canary agent session, `canaryctl` will resolve your actor identity automatically from the inherited Canary session token.
+- Do not invent or pass your own display name for thread or file-brief authorship.
+- If the repo is using Canary for attributed agent threads, prefer being launched via `canary codex` or `canary claude` so your threads and replies are tagged to the correct live actor.
 
 Use these commands:
 

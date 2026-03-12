@@ -49,11 +49,15 @@ export function openConnection(projectRoot: string): CanaryConnection {
 export function getMigrationsDir(): string {
   const candidates = [
     fileURLToPath(new URL("../migrations", import.meta.url)),
+    fileURLToPath(new URL("../migrations/migrations", import.meta.url)),
     fileURLToPath(new URL("../../migrations", import.meta.url))
   ];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
+    if (
+      fs.existsSync(candidate) &&
+      fs.readdirSync(candidate, { encoding: "utf8" }).some((entry) => entry.endsWith(".sql"))
+    ) {
       return candidate;
     }
   }

@@ -9,6 +9,12 @@ export {
   resolveProjectRoot
 } from "./db/storage.js";
 export {
+  createMonitorSession,
+  getSessionByToken,
+  resolveCallerIdentity,
+  startAgentSession
+} from "./repositories/actor-sessions.js";
+export {
   addThreadMessage,
   appendEvent,
   createSession,

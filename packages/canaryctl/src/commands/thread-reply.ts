@@ -10,12 +10,16 @@ interface ThreadReplyInput {
 }
 
 export async function runThreadReply(input: ThreadReplyInput): Promise<void> {
-  await withConnection(input.cwd, async ({ connection }) => {
+  await withConnection(input.cwd, async ({ connection, resolveWriteCaller }) => {
+    const caller = await resolveWriteCaller();
     const message = await addThreadMessage(connection, {
       threadId: input.threadId,
       body: input.body,
       source: "canaryctl",
-      author: "agent"
+      author: caller.author,
+      authorId: caller.authorId,
+      authorType: caller.authorType,
+      authorAvatarSvg: caller.authorAvatarSvg
     });
 
     if (input.json) {

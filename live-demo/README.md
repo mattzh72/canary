@@ -39,7 +39,8 @@ node live-demo/index.mjs start default --port 4310 --open
 - Every run wipes and recreates that workspace from `live-demo/template/`.
 - The SQLite database is isolated to a live-demo-specific canary home under the system temp directory.
 - File diffs come from a real watcher against the generated workspace.
-- Typed review threads and file briefs are created by invoking the real `canaryctl` CLI.
+- The demo now creates a monitor session plus a wrapped Codex actor session with a real `CANARY_SESSION_TOKEN`.
+- Typed review threads and file briefs are created by invoking the real `canaryctl` CLI inside that wrapped actor context.
 - The default replay intentionally leaves one outdated thread and one outdated file brief visible at the end so you can inspect stale-context UI states without racing the playback.
 - The default replay also seeds one thread body with literal escaped newlines so you can visually confirm the UI normalizes legacy `\n` text into real paragraphs and bullets.
 - The default scenario seeds half-open line ranges so thread anchors land on the intended file spans.

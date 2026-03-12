@@ -1,8 +1,9 @@
 import {
+  memo,
+  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
-  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -20,10 +21,12 @@ import type {
   ThreadRecord,
 } from "canary-core";
 import {
+  fetchProjectTree,
   fetchOverview,
   replyToThread,
   fetchFileContent,
   searchCanary,
+  setThreadStatus,
 } from "./lib/api";
 import { resolveAnnotationCategoriesForLine } from "./lib/annotation-line.js";
 import { highlightDiffLine } from "./lib/highlight.js";
@@ -39,6 +42,9 @@ interface TreeNode {
   children: TreeNode[];
   isFile: boolean;
   indicators: AnnotationIndicator[];
+  hasBrief: boolean;
+  briefFreshness: ArtifactFreshness | null;
+  hasReviewSignal: boolean;
   changeType?: "add" | "change" | "unlink";
 }
 
@@ -46,6 +52,12 @@ interface AnnotationIndicator {
   type: "thread";
   category?: ThreadRecord["type"];
   count: number;
+}
+
+interface VisibleTreeRow {
+  node: TreeNode;
+  depth: number;
+  isOpen: boolean;
 }
 
 interface FileAnnotation {
@@ -60,8 +72,17 @@ interface FileAnnotation {
   status: string;
   freshness: ArtifactFreshness;
   author: string;
+  authorType: ThreadRecord["authorType"];
+  authorAvatarSvg: string | null;
   createdAt: string;
-  messages?: { id: string; author: string; body: string; createdAt: string }[];
+  messages?: {
+    id: string;
+    author: string;
+    authorType: ThreadRecord["authorType"];
+    authorAvatarSvg: string | null;
+    body: string;
+    createdAt: string;
+  }[];
 }
 
 interface PersistedWorkspaceState {
@@ -71,13 +92,19 @@ interface PersistedWorkspaceState {
   sidebarTab: "files" | "activity";
 }
 
+const EMPTY_FILE_ANNOTATIONS: FileAnnotation[] = [];
 const WORKSPACE_STATE_STORAGE_PREFIX = "canary.ui.workspace";
+const FILE_CONTENT_CACHE_LIMIT = 24;
+const FILE_TREE_OVERSCAN = 12;
+const FILE_TREE_ROW_HEIGHT = 26;
+const OVERVIEW_POLL_INTERVAL_MS = 2000;
+const SEARCH_DEBOUNCE_MS = 150;
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-function RichTextBody({
+const RichTextBody = memo(function RichTextBody({
   body,
   className,
 }: {
@@ -133,26 +160,92 @@ function RichTextBody({
       </ReactMarkdown>
     </div>
   );
+});
+
+function avatarValueToSrc(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value.trim().startsWith("<svg")
+    ? `data:image/svg+xml;utf8,${encodeURIComponent(value)}`
+    : value;
+}
+
+function authorTone(authorType: ThreadRecord["authorType"]) {
+  return authorType === "human"
+    ? "bg-[rgba(107,188,167,0.2)] text-[var(--thread-highlight-text)]"
+    : "bg-[rgba(124,106,239,0.2)] text-[var(--accent-text)]";
+}
+
+function AuthorMeta({
+  author,
+  authorType,
+  authorAvatarSvg,
+  createdAt,
+}: {
+  author: string;
+  authorType: ThreadRecord["authorType"];
+  authorAvatarSvg: string | null;
+  createdAt: string;
+}) {
+  const avatarSrc = avatarValueToSrc(authorAvatarSvg);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {avatarSrc ? (
+        <img
+          src={avatarSrc}
+          alt={author}
+          className="h-5 w-5 shrink-0 rounded-full border border-[rgba(255,255,255,0.08)]"
+        />
+      ) : (
+        <span
+          className={cx(
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+            authorTone(authorType),
+          )}
+        >
+          {author.charAt(0).toUpperCase()}
+        </span>
+      )}
+      <span className="text-[12px] font-medium text-white">{author}</span>
+      <span className="text-[var(--thread-text-3)]">•</span>
+      <span className="text-[11px] text-[var(--thread-text-3)]">{timeAgo(createdAt)}</span>
+    </div>
+  );
 }
 
 function buildFileTree(
+  projectPaths: string[],
   changedFiles: ChangedFileSummary[],
   threads: ThreadRecord[],
+  fileBriefs: FileBriefRecord[],
 ): TreeNode[] {
   const fileMap = new Map<
     string,
     {
       changeType?: ChangedFileSummary["eventType"];
       indicators: Map<string, AnnotationIndicator>;
+      hasBrief: boolean;
+      briefFreshness: ArtifactFreshness | null;
     }
   >();
 
   const ensureFile = (fp: string) => {
     if (!fileMap.has(fp)) {
-      fileMap.set(fp, { indicators: new Map() });
+      fileMap.set(fp, {
+        indicators: new Map(),
+        hasBrief: false,
+        briefFreshness: null,
+      });
     }
     return fileMap.get(fp)!;
   };
+
+  for (const filePath of projectPaths) {
+    ensureFile(filePath);
+  }
 
   for (const f of changedFiles) {
     const entry = ensureFile(f.filePath);
@@ -169,6 +262,12 @@ function buildFileTree(
     };
     ind.count++;
     entry.indicators.set(t.type, ind);
+  }
+
+  for (const brief of fileBriefs) {
+    const entry = ensureFile(brief.filePath);
+    entry.hasBrief = true;
+    entry.briefFreshness = brief.freshness;
   }
 
   const root: TreeNode[] = [];
@@ -192,6 +291,12 @@ function buildFileTree(
           children: [],
           isFile: true,
           indicators: [...entry.indicators.values()],
+          hasBrief: entry.hasBrief,
+          briefFreshness: entry.briefFreshness,
+          hasReviewSignal:
+            Boolean(entry.changeType) ||
+            entry.indicators.size > 0 ||
+            entry.hasBrief,
           changeType: entry.changeType,
         });
       } else {
@@ -203,6 +308,9 @@ function buildFileTree(
             children: [],
             isFile: false,
             indicators: [],
+            hasBrief: false,
+            briefFreshness: null,
+            hasReviewSignal: false,
           };
           dirNodes.set(dirPath, dirNode);
           current.push(dirNode);
@@ -212,42 +320,107 @@ function buildFileTree(
     }
   }
 
-  return root;
+  const finalizeNodes = (nodes: TreeNode[]): TreeNode[] =>
+    [...nodes]
+      .map((node) => {
+        if (!node.isFile) {
+          node.children = finalizeNodes(node.children);
+          node.hasReviewSignal = node.children.some((child) => child.hasReviewSignal);
+        }
+        return node;
+      })
+      .sort((left, right) => {
+        if (left.isFile !== right.isFile) {
+          return left.isFile ? 1 : -1;
+        }
+        if (left.hasReviewSignal !== right.hasReviewSignal) {
+          return left.hasReviewSignal ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name);
+      });
+
+  return finalizeNodes(root);
 }
 
-function getAnnotationsForFile(
-  filePath: string,
-  threads: ThreadRecord[],
-): FileAnnotation[] {
-  const annotations: FileAnnotation[] = [];
+function flattenVisibleTree(
+  nodes: TreeNode[],
+  expanded: Set<string>,
+): VisibleTreeRow[] {
+  const rows: VisibleTreeRow[] = [];
 
-  for (const t of threads) {
-    if (t.filePath !== filePath) continue;
-    annotations.push({
-      id: t.id,
-      type: "thread",
-      title: t.title,
-      body: "",
-      startLine: t.startLine,
-      endLine: t.endLine,
-      lineSide: t.lineSide,
-      category: t.type,
-      status: t.status,
-      freshness: t.freshness,
-      author: t.author,
-      createdAt: t.createdAt,
-      messages: t.messages.map((msg) => ({
-        id: msg.id,
-        author: msg.author,
-        body: msg.body,
-        createdAt: msg.createdAt,
-      })),
-    });
+  const visit = (node: TreeNode, depth: number) => {
+    const isOpen = !node.isFile && expanded.has(node.path);
+    rows.push({ node, depth, isOpen });
+
+    if (!isOpen) {
+      return;
+    }
+
+    for (const child of node.children) {
+      visit(child, depth + 1);
+    }
+  };
+
+  for (const node of nodes) {
+    visit(node, 0);
   }
 
-  return annotations.sort(
-    (a, b) => (a.startLine ?? Infinity) - (b.startLine ?? Infinity),
-  );
+  return rows;
+}
+
+function mapThreadToAnnotation(thread: ThreadRecord): FileAnnotation {
+  return {
+    id: thread.id,
+    type: "thread",
+    title: thread.title,
+    body: "",
+    startLine: thread.startLine,
+    endLine: thread.endLine,
+    lineSide: thread.lineSide,
+    category: thread.type,
+    status: thread.status,
+    freshness: thread.freshness,
+    author: thread.author,
+    authorType: thread.authorType,
+    authorAvatarSvg: thread.authorAvatarSvg,
+    createdAt: thread.createdAt,
+    messages: thread.messages.map((message) => ({
+      id: message.id,
+      author: message.author,
+      authorType: message.authorType,
+      authorAvatarSvg: message.authorAvatarSvg,
+      body: message.body,
+      createdAt: message.createdAt,
+    })),
+  };
+}
+
+function buildAnnotationsByFile(
+  threads: ThreadRecord[],
+): Map<string, FileAnnotation[]> {
+  const annotationsByFile = new Map<string, FileAnnotation[]>();
+
+  for (const thread of threads) {
+    if (!thread.filePath) {
+      continue;
+    }
+
+    const annotations = annotationsByFile.get(thread.filePath);
+    if (annotations) {
+      annotations.push(mapThreadToAnnotation(thread));
+      continue;
+    }
+
+    annotationsByFile.set(thread.filePath, [mapThreadToAnnotation(thread)]);
+  }
+
+  for (const annotations of annotationsByFile.values()) {
+    annotations.sort(
+      (left, right) => (left.startLine ?? Infinity) - (right.startLine ?? Infinity),
+    );
+  }
+
+  return annotationsByFile;
 }
 
 function getFirstThreadAnnotation(
@@ -567,6 +740,86 @@ function writePersistedWorkspaceState(
   }
 }
 
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function getOverviewSnapshotKey(overview: ProjectOverview): string {
+  const sessionKey = overview.session
+    ? [
+        overview.session.id,
+        overview.session.status,
+        overview.session.endedAt ?? "",
+        overview.session.actorId ?? "",
+        overview.session.actorName ?? "",
+      ].join(":")
+    : "no-session";
+
+  const changedFilesKey = overview.changedFiles
+    .map(
+      (file) =>
+        `${file.filePath}:${file.eventType}:${file.added}:${file.removed}:${file.lastUpdatedAt}`,
+    )
+    .join("|");
+  const threadsKey = overview.threads
+    .map(
+      (thread) =>
+        `${thread.id}:${thread.status}:${thread.freshness}:${thread.updatedAt}:${thread.messages.length}`,
+    )
+    .join("|");
+  const briefsKey = overview.fileBriefs
+    .map(
+      (brief) => `${brief.id}:${brief.freshness}:${brief.updatedAt}`,
+    )
+    .join("|");
+  const eventsKey = overview.recentEvents
+    .map((event) => `${event.id}:${event.ts}`)
+    .join("|");
+
+  return [
+    sessionKey,
+    changedFilesKey,
+    threadsKey,
+    briefsKey,
+    eventsKey,
+  ].join("||");
+}
+
+function getFileContentCacheKey(
+  filePath: string,
+  change: ChangedFileSummary | null,
+): string {
+  return `${filePath}:${change?.lastUpdatedAt ?? "stable"}`;
+}
+
+function cacheFileContent(
+  cache: Map<string, string>,
+  cacheKey: string,
+  content: string,
+): void {
+  if (cache.has(cacheKey)) {
+    cache.delete(cacheKey);
+  }
+
+  cache.set(cacheKey, content);
+
+  while (cache.size > FILE_CONTENT_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    if (typeof oldestKey !== "string") {
+      break;
+    }
+    cache.delete(oldestKey);
+  }
+}
+
 interface LineRange {
   start: number;
   end: number;
@@ -593,6 +846,63 @@ function mergeLineRanges(ranges: LineRange[]): LineRange[] {
   return merged;
 }
 
+function useElementHeight(
+  ref: React.RefObject<HTMLElement | null>,
+): number {
+  const [height, setHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) {
+      return;
+    }
+
+    const updateHeight = () => {
+      const nextHeight = element.clientHeight;
+      setHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+
+    updateHeight();
+
+    const observer = new ResizeObserver(() => {
+      updateHeight();
+    });
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [ref]);
+
+  return height;
+}
+
+function haveSameMeasuredPositions(
+  left: Map<string, { top: number; idealTop: number }>,
+  right: Map<string, { top: number; idealTop: number }>,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const [key, leftValue] of left) {
+    const rightValue = right.get(key);
+    if (
+      !rightValue ||
+      rightValue.top !== leftValue.top ||
+      rightValue.idealTop !== leftValue.idealTop
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Components                                                         */
 /* ------------------------------------------------------------------ */
@@ -612,7 +922,11 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
-function FileBriefHeader({ brief }: { brief: FileBriefRecord }) {
+const FileBriefHeader = memo(function FileBriefHeader({
+  brief,
+}: {
+  brief: FileBriefRecord;
+}) {
   const isOutdated = brief.freshness === "outdated";
   return (
     <section
@@ -662,25 +976,28 @@ function FileBriefHeader({ brief }: { brief: FileBriefRecord }) {
       </div>
     </section>
   );
-}
+});
 
-function FileTreeItem({
+const FileTreeItem = memo(function CanaryFileTreeItem({
   node,
   depth,
-  expanded,
+  isOpen,
   onToggle,
   onSelect,
-  activeFile,
+  isActive,
 }: {
   node: TreeNode;
   depth: number;
-  expanded: Set<string>;
+  isOpen: boolean;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
-  activeFile: string | null;
+  isActive: boolean;
 }) {
-  const isOpen = expanded.has(node.path);
-  const isActive = activeFile === node.path;
+  const isDimmed = !isActive && !node.hasReviewSignal;
+  const briefBadgeClass =
+    node.briefFreshness === "outdated"
+      ? "border-[rgba(255,184,77,0.24)] bg-[rgba(255,184,77,0.12)] text-[var(--amber)]"
+      : "border-[rgba(91,156,245,0.24)] bg-[rgba(91,156,245,0.12)] text-[var(--blue)]";
 
   return (
     <>
@@ -689,6 +1006,7 @@ function FileTreeItem({
           "flex h-[26px] w-full items-center gap-1.5 pr-2.5 text-left text-[12px] text-[var(--text-2)] transition-colors duration-100",
           "hover:bg-[var(--bg-3)]",
           isActive && "bg-[var(--accent-muted)] text-[var(--text-1)]",
+          isDimmed && "text-[var(--text-3)] opacity-60",
         )}
         style={{ paddingLeft: `${12 + depth * 16}px` }}
         onClick={() => {
@@ -731,6 +1049,21 @@ function FileTreeItem({
           </span>
         )}
         <span className="flex shrink-0 gap-[3px]">
+          {node.hasBrief && (
+            <span
+              className={cx(
+                "inline-flex h-3.5 min-w-[14px] items-center justify-center rounded-[3px] border px-1 font-[var(--font-mono)] text-[9px] font-semibold uppercase",
+                briefBadgeClass,
+              )}
+              title={
+                node.briefFreshness === "outdated"
+                  ? "File brief is outdated"
+                  : "File brief available"
+              }
+            >
+              {node.briefFreshness === "outdated" ? "!" : "B"}
+            </span>
+          )}
           {node.indicators.map((ind) => (
             <span
               key={ind.category ?? ind.type}
@@ -745,22 +1078,70 @@ function FileTreeItem({
           ))}
         </span>
       </button>
-      {!node.isFile && isOpen
-        ? node.children.map((child) => (
-            <FileTreeItem
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              expanded={expanded}
-              onToggle={onToggle}
-              onSelect={onSelect}
-              activeFile={activeFile}
-            />
-          ))
-        : null}
     </>
   );
-}
+});
+
+const FileTreeList = memo(function FileTreeList({
+  rows,
+  activeFile,
+  onToggle,
+  onSelect,
+}: {
+  rows: VisibleTreeRow[];
+  activeFile: string | null;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewportHeight = useElementHeight(containerRef);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollTop / FILE_TREE_ROW_HEIGHT) - FILE_TREE_OVERSCAN,
+  );
+  const visibleCount =
+    Math.ceil(viewportHeight / FILE_TREE_ROW_HEIGHT) + FILE_TREE_OVERSCAN * 2;
+  const endIndex = Math.min(rows.length, startIndex + visibleCount);
+  const topPadding = startIndex * FILE_TREE_ROW_HEIGHT;
+  const bottomPadding = Math.max(
+    0,
+    (rows.length - endIndex) * FILE_TREE_ROW_HEIGHT,
+  );
+
+  return (
+    <div
+      className="h-full min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+      ref={containerRef}
+      onScroll={(event) => {
+        const nextScrollTop = event.currentTarget.scrollTop;
+        setScrollTop((current) =>
+          current === nextScrollTop ? current : nextScrollTop,
+        );
+      }}
+    >
+      <div
+        style={{
+          paddingTop: `${topPadding}px`,
+          paddingBottom: `${bottomPadding}px`,
+        }}
+      >
+        {rows.slice(startIndex, endIndex).map(({ node, depth, isOpen }) => (
+          <FileTreeItem
+            key={node.path}
+            node={node}
+            depth={depth}
+            isOpen={isOpen}
+            onToggle={onToggle}
+            onSelect={onSelect}
+            isActive={activeFile === node.path}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
 
 function hasActiveLineAnchor(annotation: FileAnnotation): boolean {
   return (
@@ -770,32 +1151,44 @@ function hasActiveLineAnchor(annotation: FileAnnotation): boolean {
   );
 }
 
-function ThreadCard({
+const ThreadCard = memo(function ThreadCard({
   annotation,
   highlighted,
   focusMode,
   onHover,
   onReply,
+  onSetStatus,
 }: {
   annotation: FileAnnotation;
   highlighted: boolean;
   focusMode: boolean;
   onHover: (id: string | null) => void;
   onReply: (threadId: string, body: string) => Promise<void>;
+  onSetStatus: (threadId: string, status: "open" | "resolved") => Promise<void>;
 }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isReplying, setIsReplying] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [resolvedExpanded, setResolvedExpanded] = useState(false);
   const [bodyExpanded, setBodyExpanded] = useState(false);
   const [repliesExpanded, setRepliesExpanded] = useState(false);
-  const allMessages: { id: string; author: string; body: string; createdAt: string }[] = [];
+  const allMessages: {
+    id: string;
+    author: string;
+    authorType: ThreadRecord["authorType"];
+    authorAvatarSvg: string | null;
+    body: string;
+    createdAt: string;
+  }[] = [];
   const isThread = annotation.type === "thread";
 
   if (annotation.body) {
     allMessages.push({
       id: `${annotation.id}-root`,
       author: annotation.author,
+      authorType: annotation.authorType,
+      authorAvatarSvg: annotation.authorAvatarSvg,
       body: annotation.body,
       createdAt: annotation.createdAt,
     });
@@ -813,11 +1206,13 @@ function ThreadCard({
   const middleReplyCount = middleReplies.length;
   const isOutdated = annotation.freshness === "outdated";
   const normalizedDraft = draft.trim();
-  const isBusy = isReplying;
+  const isBusy = isReplying || isUpdatingStatus;
   const isResolved = annotation.status === "resolved";
   const isResolvedCollapsed = isThread && isResolved && !resolvedExpanded;
   const showConversation = !isResolved || resolvedExpanded;
   const tone = threadTone(annotation.category);
+  const nextStatus = isResolved ? "open" : "resolved";
+  const statusButtonLabel = isResolved ? "Reopen" : "Resolve";
 
   useEffect(() => {
     if (annotation.status === "resolved") {
@@ -827,6 +1222,28 @@ function ThreadCard({
 
     setResolvedExpanded(false);
   }, [annotation.id, annotation.status]);
+
+  const handleStatusChange = useCallback(async () => {
+    if (!isThread || isBusy) {
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    setError(null);
+
+    try {
+      await onSetStatus(annotation.id, nextStatus);
+      if (nextStatus === "open") {
+        setResolvedExpanded(true);
+      }
+    } catch (statusError) {
+      setError(
+        statusError instanceof Error ? statusError.message : String(statusError),
+      );
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  }, [annotation.id, isBusy, isThread, nextStatus, onSetStatus]);
 
   const submitReply = useCallback(async () => {
     if (!isThread || !normalizedDraft || isBusy) {
@@ -898,13 +1315,37 @@ function ThreadCard({
                 </h3>
               </div>
             </div>
-            <button
-              type="button"
-              className="shrink-0 text-[11px] font-medium text-[var(--thread-text-3)] transition-colors duration-150 hover:text-[var(--thread-text-1)]"
-              onClick={() => setResolvedExpanded(true)}
-            >
-              View
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex h-7 min-h-7 items-center justify-center rounded-[8px] border border-[var(--thread-border)] bg-[rgba(255,255,255,0.02)] px-2.5 text-[11px] font-medium text-[var(--thread-text-3)] transition-all duration-150 hover:border-[var(--thread-border-strong)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--thread-text-2)]"
+                onClick={() => setResolvedExpanded(true)}
+              >
+                View
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-7 min-h-7 items-center gap-1.5 justify-center rounded-[8px] border border-[var(--thread-border-strong)] bg-[rgba(255,255,255,0.04)] px-2.5 text-[11px] font-medium text-[var(--thread-text-2)] transition-all duration-150 hover:border-[var(--border-hover)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--text-1)] active:border-[var(--border-active)] active:bg-[rgba(255,255,255,0.12)] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleStatusChange()}
+                disabled={isBusy}
+                aria-label={`${statusButtonLabel} thread`}
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3.25 8h9.5M8 3.25v9.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                {isUpdatingStatus ? "Saving..." : statusButtonLabel}
+              </button>
+            </div>
           </div>
           {error && (
             <div className="border-t border-[var(--thread-border)] px-3.5 py-2">
@@ -917,8 +1358,8 @@ function ThreadCard({
       ) : (
         <div className="flex flex-col gap-2 px-3.5 py-3">
           {/* Header */}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 {annotation.category ? (
                   <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--thread-text-3)]">
@@ -933,6 +1374,40 @@ function ThreadCard({
                   </span>
                 )}
               </div>
+              {isThread && (
+              <button
+                type="button"
+                className="inline-flex h-6 min-h-6 shrink-0 items-center gap-1 rounded-[8px] border border-[var(--thread-border-strong)] bg-[rgba(255,255,255,0.04)] px-2.5 text-[11px] font-medium leading-none text-[var(--thread-text-2)] transition-all duration-150 hover:border-[var(--border-hover)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--text-1)] active:border-[var(--border-active)] active:bg-[rgba(255,255,255,0.12)] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleStatusChange()}
+                disabled={isBusy}
+                aria-label={`${statusButtonLabel} thread`}
+              >
+                  <svg
+                    viewBox="0 0 16 16"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    {isResolved ? (
+                      <path
+                        d="M3.25 8h9.5M8 3.25v9.5"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    ) : (
+                      <path
+                        d="M4.5 8.5 6.5 10.5 11.5 4.5"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+                  </svg>
+                  {isUpdatingStatus ? "Saving..." : statusButtonLabel}
+                </button>
+              )}
             </div>
               <h3 className="m-0 line-clamp-2 text-[13px] leading-[1.4] font-semibold tracking-[-0.01em] text-[var(--thread-text-1)]">
               {annotation.title}
@@ -942,25 +1417,12 @@ function ThreadCard({
           {/* Opener message */}
           {showConversation && openerMessage && (
             <div className="flex flex-col gap-1.5 pt-1">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={cx(
-                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
-                    openerMessage.author === "agent"
-                      ? "bg-[rgba(124,106,239,0.2)] text-[var(--accent-text)]"
-                      : "bg-[rgba(107,188,167,0.2)] text-[var(--thread-highlight-text)]",
-                  )}
-                >
-                  {openerMessage.author.charAt(0).toUpperCase()}
-                </span>
-                <span className="text-[12px] font-medium text-white">
-                  {openerMessage.author}
-                </span>
-                <span className="text-[var(--thread-text-3)]">•</span>
-                <span className="text-[11px] text-[var(--thread-text-3)]">
-                  {timeAgo(annotation.createdAt)}
-                </span>
-              </div>
+              <AuthorMeta
+                author={openerMessage.author}
+                authorType={openerMessage.authorType}
+                authorAvatarSvg={openerMessage.authorAvatarSvg}
+                createdAt={annotation.createdAt}
+              />
               <div className="relative">
                 <RichTextBody
                   body={openerMessage.body}
@@ -1004,25 +1466,12 @@ function ThreadCard({
                 middleReplies.map((msg) => (
                   <div key={msg.id} className="border-t border-[var(--thread-border)] py-2.5">
                     <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={cx(
-                            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
-                            msg.author === "agent"
-                              ? "bg-[rgba(124,106,239,0.2)] text-[var(--accent-text)]"
-                              : "bg-[rgba(107,188,167,0.2)] text-[var(--thread-highlight-text)]",
-                          )}
-                        >
-                          {msg.author.charAt(0).toUpperCase()}
-                        </span>
-                        <span className="text-[12px] font-medium text-white">
-                          {msg.author}
-                        </span>
-                        <span className="text-[var(--thread-text-3)]">•</span>
-                        <span className="text-[11px] text-[var(--thread-text-3)]">
-                          {timeAgo(msg.createdAt)}
-                        </span>
-                      </div>
+                      <AuthorMeta
+                        author={msg.author}
+                        authorType={msg.authorType}
+                        authorAvatarSvg={msg.authorAvatarSvg}
+                        createdAt={msg.createdAt}
+                      />
                       <RichTextBody
                         body={msg.body}
                         className="text-[11px] leading-[1.6] text-[var(--thread-text-2)]"
@@ -1037,25 +1486,12 @@ function ThreadCard({
           {showConversation && lastReply && (
             <div className="py-2.5">
               <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={cx(
-                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
-                      lastReply.author === "agent"
-                        ? "bg-[rgba(124,106,239,0.2)] text-[var(--accent-text)]"
-                        : "bg-[rgba(107,188,167,0.2)] text-[var(--thread-highlight-text)]",
-                    )}
-                  >
-                    {lastReply.author.charAt(0).toUpperCase()}
-                  </span>
-                  <span className="text-[12px] font-medium text-white">
-                    {lastReply.author}
-                  </span>
-                  <span className="text-[var(--thread-text-3)]">•</span>
-                  <span className="text-[11px] text-[var(--thread-text-3)]">
-                    {timeAgo(lastReply.createdAt)}
-                  </span>
-                </div>
+                <AuthorMeta
+                  author={lastReply.author}
+                  authorType={lastReply.authorType}
+                  authorAvatarSvg={lastReply.authorAvatarSvg}
+                  createdAt={lastReply.createdAt}
+                />
                 <RichTextBody
                   body={lastReply.body}
                   className="text-[11px] leading-[1.6] text-[var(--thread-text-2)]"
@@ -1123,7 +1559,7 @@ function ThreadCard({
       )}
     </div>
   );
-}
+});
 
 /**
  * Measure actual pixel offsets for annotated code lines inside a scroll
@@ -1153,75 +1589,115 @@ function useMeasuredLinePositions(
     const gutterEl = container.querySelector<HTMLElement>(".threads-gutter");
     if (!gutterEl) return;
 
-    // Offset of the gutter column relative to the scroll container top
-    const gutterTop = gutterEl.getBoundingClientRect().top;
+    let frameId: number | null = null;
 
-    // For each annotation with a startLine, find the first matching code-line
-    // element and record its vertical position relative to the gutter top.
-    const lineLevel = annotations
-      .filter((a) => hasActiveLineAnchor(a))
-      .sort((a, b) => (a.startLine ?? 0) - (b.startLine ?? 0));
+    const measure = () => {
+      // Offset of the gutter column relative to the scroll container top
+      const gutterTop = gutterEl.getBoundingClientRect().top;
 
-    // Key: "side:line" or just "line" for lookups
-    const measured = new Map<string, number>();
-    for (const a of lineLevel) {
-      const line = a.startLine!;
-      const side = a.lineSide;
-      const key = side ? `${side}:${line}` : `${line}`;
-      if (measured.has(key)) continue;
+      // For each annotation with a startLine, find the first matching code-line
+      // element and record its vertical position relative to the gutter top.
+      const lineLevel = annotations
+        .filter((a) => hasActiveLineAnchor(a))
+        .sort((a, b) => (a.startLine ?? 0) - (b.startLine ?? 0));
 
-      // Query with side if available, otherwise just by line number
-      const selector = side
-        ? `[data-line="${line}"][data-line-side="${side}"]`
-        : `[data-line="${line}"]`;
-      const el =
-        container.querySelector<HTMLElement>(selector) ??
-        container.querySelector<HTMLElement>(`[data-line="${line}"]`);
-      if (el) {
-        measured.set(key, el.getBoundingClientRect().top - gutterTop);
+      // Key: "side:line" or just "line" for lookups
+      const measured = new Map<string, number>();
+      for (const a of lineLevel) {
+        const line = a.startLine!;
+        const side = a.lineSide;
+        const key = side ? `${side}:${line}` : `${line}`;
+        if (measured.has(key)) continue;
+
+        // Query with side if available, otherwise just by line number
+        const selector = side
+          ? `[data-line="${line}"][data-line-side="${side}"]`
+          : `[data-line="${line}"]`;
+        const el =
+          container.querySelector<HTMLElement>(selector) ??
+          container.querySelector<HTMLElement>(`[data-line="${line}"]`);
+        if (el) {
+          measured.set(key, el.getBoundingClientRect().top - gutterTop);
+        }
       }
-    }
 
-    // Lay out cards: ideal position = measured line offset, pushed down to
-    // avoid overlapping the previous card.
-    const CARD_GAP = 8;
-    const result = new Map<string, { top: number; idealTop: number }>();
-    let maxBottom = 0;
-    let cursor = 0;
+      // Lay out cards: ideal position = measured line offset, pushed down to
+      // avoid overlapping the previous card.
+      const CARD_GAP = 8;
+      const result = new Map<string, { top: number; idealTop: number }>();
+      let maxBottom = 0;
+      let cursor = 0;
 
-    // File-level threads first (no line reference)
-    const fileLevel = annotations.filter((a) => !hasActiveLineAnchor(a));
-    for (const a of fileLevel) {
-      result.set(a.id, { top: cursor, idealTop: cursor });
-      const cardEl = gutterEl.querySelector<HTMLElement>(
-        `[data-thread-id="${a.id}"]`,
+      // File-level threads first (no line reference)
+      const fileLevel = annotations.filter((a) => !hasActiveLineAnchor(a));
+      for (const a of fileLevel) {
+        result.set(a.id, { top: cursor, idealTop: cursor });
+        const cardEl = gutterEl.querySelector<HTMLElement>(
+          `[data-thread-id="${a.id}"]`,
+        );
+        const cardH = cardEl ? cardEl.offsetHeight : 120;
+        cursor += cardH + CARD_GAP;
+        maxBottom = Math.max(maxBottom, cursor);
+      }
+
+      for (const a of lineLevel) {
+        const key = a.lineSide
+          ? `${a.lineSide}:${a.startLine!}`
+          : `${a.startLine!}`;
+        const idealTop = measured.get(key) ?? cursor;
+        const top = Math.max(idealTop, cursor);
+        result.set(a.id, { top, idealTop });
+
+        // Measure the actual rendered card height if it exists yet, else estimate
+        const cardEl = gutterEl.querySelector<HTMLElement>(
+          `[data-thread-id="${a.id}"]`,
+        );
+        const cardH = cardEl ? cardEl.offsetHeight : 120;
+        cursor = top + cardH + CARD_GAP;
+        maxBottom = Math.max(maxBottom, cursor);
+      }
+
+      // Keep gutter tall enough for pushed cards so its background/border follows the last card.
+      const bottomPadding = 24;
+      setPositions((current) =>
+        haveSameMeasuredPositions(current, result) ? current : result,
       );
-      const cardH = cardEl ? cardEl.offsetHeight : 120;
-      cursor += cardH + CARD_GAP;
-      maxBottom = Math.max(maxBottom, cursor);
+      setGutterHeight((current) => {
+        const next = Math.max(0, Math.ceil(maxBottom + bottomPadding));
+        return current === next ? current : next;
+      });
+    };
+
+    const scheduleMeasure = () => {
+      if (frameId !== null) {
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        measure();
+      });
+    };
+
+    measure();
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleMeasure();
+    });
+    resizeObserver.observe(container);
+    resizeObserver.observe(gutterEl);
+    for (const cardEl of gutterEl.querySelectorAll<HTMLElement>("[data-thread-id]")) {
+      resizeObserver.observe(cardEl);
     }
+    window.addEventListener("resize", scheduleMeasure);
 
-    for (const a of lineLevel) {
-      const key = a.lineSide
-        ? `${a.lineSide}:${a.startLine!}`
-        : `${a.startLine!}`;
-      const idealTop = measured.get(key) ?? cursor;
-      const top = Math.max(idealTop, cursor);
-      result.set(a.id, { top, idealTop });
-
-      // Measure the actual rendered card height if it exists yet, else estimate
-      const cardEl = gutterEl.querySelector<HTMLElement>(
-        `[data-thread-id="${a.id}"]`,
-      );
-      const cardH = cardEl ? cardEl.offsetHeight : 120;
-      cursor = top + cardH + CARD_GAP;
-      maxBottom = Math.max(maxBottom, cursor);
-    }
-
-    // Keep gutter tall enough for pushed cards so its background/border follows the last card.
-    const bottomPadding = 24;
-    setPositions(result);
-    setGutterHeight(Math.max(0, Math.ceil(maxBottom + bottomPadding)));
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+    };
   }, [containerRef, annotations, renderKey]);
 
   return { positions, gutterHeight };
@@ -1319,12 +1795,13 @@ function ThreadConnector({
   );
 }
 
-function ThreadsPanel({
+const ThreadsPanel = memo(function ThreadsPanel({
   annotations,
   highlightedThread,
   focusMode,
   onHoverThread,
   onReplyThread,
+  onSetThreadStatus,
   positions,
   gutterHeight,
 }: {
@@ -1333,6 +1810,7 @@ function ThreadsPanel({
   focusMode: boolean;
   onHoverThread: (id: string | null) => void;
   onReplyThread: (threadId: string, body: string) => Promise<void>;
+  onSetThreadStatus: (threadId: string, status: "open" | "resolved") => Promise<void>;
   positions: Map<string, { top: number; idealTop: number }>;
   gutterHeight: number;
 }) {
@@ -1381,15 +1859,16 @@ function ThreadsPanel({
               focusMode={focusMode}
               onHover={onHoverThread}
               onReply={onReplyThread}
+              onSetStatus={onSetThreadStatus}
             />
           </div>
         );
       })}
     </div>
   );
-}
+});
 
-function CodeView({
+const CodeView = memo(function CodeView({
   filePath,
   patch,
   fileBrief,
@@ -1399,6 +1878,7 @@ function CodeView({
   annotations,
   focusMode,
   onReplyThread,
+  onSetThreadStatus,
 }: {
   filePath: string;
   patch: string | null;
@@ -1409,6 +1889,7 @@ function CodeView({
   annotations: FileAnnotation[];
   focusMode: boolean;
   onReplyThread: (threadId: string, body: string) => Promise<void>;
+  onSetThreadStatus: (threadId: string, status: "open" | "resolved") => Promise<void>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [hoveredThread, setHoveredThread] = useState<string | null>(null);
@@ -1494,7 +1975,13 @@ function CodeView({
     setHoveredThread(id);
   }, []);
 
-  const renderKey = `${filePath}:${patch?.length ?? ""}:${annotations.length}`;
+  const renderKey = [
+    filePath,
+    patch?.length ?? 0,
+    fileContent?.length ?? 0,
+    fileBrief?.id ?? "",
+    annotations.length,
+  ].join(":");
   const { positions, gutterHeight } = useMeasuredLinePositions(
     containerRef,
     annotations,
@@ -1557,6 +2044,7 @@ function CodeView({
         hasThreadAnnotations={hasThreadAnnotations}
         onHoverThread={handleHoverThread}
         onReplyThread={onReplyThread}
+        onSetThreadStatus={onSetThreadStatus}
         positions={positions}
         gutterHeight={gutterHeight}
       />
@@ -1586,7 +2074,7 @@ function CodeView({
           </p>
         )}
         <p className="text-[13px] text-[var(--text-3)]">
-          No diff available for this file.
+          No current-run diff. Showing the full file.
         </p>
         {fileContent && (
           <SourceContextView
@@ -1599,7 +2087,7 @@ function CodeView({
             hasThreadAnnotations={hasThreadAnnotations}
             filterLineNumbers={null}
             focusedLineRange={highlightedLineRange}
-            title="Lines in this file that have thread anchors:"
+            showAllLines
           />
         )}
       </div>
@@ -1609,14 +2097,15 @@ function CodeView({
         focusMode={focusMode}
         onHoverThread={handleHoverThread}
         onReplyThread={onReplyThread}
+        onSetThreadStatus={onSetThreadStatus}
         positions={positions}
         gutterHeight={gutterHeight}
       />
     </div>
   );
-}
+});
 
-function DiffViewWithThreads({
+const DiffViewWithThreads = memo(function DiffViewWithThreads({
   containerRef,
   patch,
   filePath,
@@ -1633,6 +2122,7 @@ function DiffViewWithThreads({
   hasThreadAnnotations,
   onHoverThread,
   onReplyThread,
+  onSetThreadStatus,
   positions,
   gutterHeight,
 }: {
@@ -1656,6 +2146,7 @@ function DiffViewWithThreads({
   hasThreadAnnotations: boolean;
   onHoverThread: (id: string | null) => void;
   onReplyThread: (threadId: string, body: string) => Promise<void>;
+  onSetThreadStatus: (threadId: string, status: "open" | "resolved") => Promise<void>;
   positions: Map<string, { top: number; idealTop: number }>;
   gutterHeight: number;
 }) {
@@ -1752,25 +2243,6 @@ function DiffViewWithThreads({
     [filePath, parsedLines],
   );
 
-  const renderedLineNumbersBySide = useMemo(
-    () => {
-      const newLines = new Set<number>();
-      const oldLines = new Set<number>();
-
-      for (const line of parsedLines) {
-        if (line.displayLineNum !== null) {
-          newLines.add(line.displayLineNum);
-        }
-        if (line.oldLineNum !== null) {
-          oldLines.add(line.oldLineNum);
-        }
-      }
-
-      return { new: newLines, old: oldLines };
-    },
-    [parsedLines],
-  );
-
   const sourceLines = useMemo(
     () =>
       fileContent
@@ -1779,38 +2251,8 @@ function DiffViewWithThreads({
     [fileContent],
   );
 
-  const outOfDiffAnchorLines = useMemo(() => {
-    const lines = new Set<number>();
-    if (!fileContent) return lines;
-
-    for (const annotation of annotations) {
-      if (!hasActiveLineAnchor(annotation)) continue;
-      if (annotation.lineSide === "old") continue;
-      const start = annotation.startLine!;
-      const end = annotation.endLine ?? start;
-
-      for (let line = start; line <= end; line++) {
-        if (line < 1 || line > sourceLines.length) {
-          continue;
-        }
-
-        const presentOnSide = renderedLineNumbersBySide.new.has(line);
-        if (!presentOnSide) {
-          lines.add(line);
-        }
-      }
-    }
-
-    return lines;
-  }, [annotations, fileContent, sourceLines.length, renderedLineNumbersBySide]);
-
-  const outOfDiffAnchorNumbers = useMemo(
-    () => [...outOfDiffAnchorLines].sort((a, b) => a - b),
-    [outOfDiffAnchorLines],
-  );
-
   const orderedContextSections = useMemo(() => {
-    if (!fileContent || outOfDiffAnchorNumbers.length === 0) {
+    if (!fileContent) {
       return [];
     }
 
@@ -1829,14 +2271,6 @@ function DiffViewWithThreads({
       const boundedStart = Math.max(1, start);
       const boundedEnd = Math.min(sourceLines.length, end);
       if (boundedStart > boundedEnd) {
-        return;
-      }
-      if (
-        !outOfDiffAnchorNumbers.some(
-          (lineNumber) =>
-            lineNumber >= boundedStart && lineNumber <= boundedEnd,
-        )
-      ) {
         return;
       }
       sections.push({ key, start: boundedStart, end: boundedEnd });
@@ -1864,7 +2298,7 @@ function DiffViewWithThreads({
     });
 
     return sections;
-  }, [fileContent, hunks, outOfDiffAnchorNumbers, sourceLines.length]);
+  }, [fileContent, hunks, sourceLines.length]);
 
   const renderDiffRow = (
     p: (typeof parsedLines)[number],
@@ -1906,16 +2340,16 @@ function DiffViewWithThreads({
       : false;
 
     return (
-      <div
-        key={`diff-line-${index}`}
-        data-line={effectiveLine ?? undefined}
-        data-line-side={effectiveLine ? lineSide : undefined}
-        className={cx(
-          "code-line relative flex min-h-[21px] px-4 transition-[opacity,background-color] duration-200 hover:bg-[rgba(255,255,255,0.02)]",
-          p.lineClass === "diff-add" && "bg-[var(--green-muted)]",
-          p.lineClass === "diff-remove" && "bg-[var(--red-muted)]",
-          hasAnnotation &&
-            p.lineClass !== "diff-add" &&
+        <div
+          key={`diff-line-${index}`}
+          data-line={effectiveLine ?? undefined}
+          data-line-side={effectiveLine ? lineSide : undefined}
+          className={cx(
+            "code-line relative flex min-h-[21px] items-start px-4 transition-[opacity,background-color] duration-200 hover:bg-[rgba(255,255,255,0.02)]",
+            p.lineClass === "diff-add" && "bg-[var(--green-muted)]",
+            p.lineClass === "diff-remove" && "bg-[var(--red-muted)]",
+            hasAnnotation &&
+              p.lineClass !== "diff-add" &&
             p.lineClass !== "diff-remove" &&
             "bg-[var(--thread-highlight-soft)]",
           isHighlighted && "bg-[var(--thread-highlight-strong)]",
@@ -1945,7 +2379,7 @@ function DiffViewWithThreads({
         </span>
         <span
           className={cx(
-            "relative min-w-0 flex-1 whitespace-pre text-[var(--text-2)]",
+            "relative min-w-0 flex-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[var(--text-2)]",
           )}
         >
           {highlightedLine.prefix !== null && (
@@ -1984,12 +2418,13 @@ function DiffViewWithThreads({
           annotations={annotations}
           annotatedLineCategories={annotatedLineCategories}
           focusedLineRange={highlightedLineRange}
-          filterLineNumbers={outOfDiffAnchorLines}
+          filterLineNumbers={null}
           focusMode={focusMode}
           hasLineAnnotations={hasLineAnnotations}
           hasThreadAnnotations={hasThreadAnnotations}
           lineStart={1}
           lineEnd={sourceLines.length}
+          showAllLines
         />,
       );
     }
@@ -2016,12 +2451,13 @@ function DiffViewWithThreads({
             annotations={annotations}
             annotatedLineCategories={annotatedLineCategories}
             focusedLineRange={highlightedLineRange}
-            filterLineNumbers={outOfDiffAnchorLines}
+            filterLineNumbers={null}
             focusMode={focusMode}
             hasLineAnnotations={hasLineAnnotations}
             hasThreadAnnotations={hasThreadAnnotations}
             lineStart={section.start}
             lineEnd={section.end}
+            showAllLines
           />,
         );
       });
@@ -2062,12 +2498,13 @@ function DiffViewWithThreads({
             annotations={annotations}
             annotatedLineCategories={annotatedLineCategories}
             focusedLineRange={highlightedLineRange}
-            filterLineNumbers={outOfDiffAnchorLines}
+            filterLineNumbers={null}
             focusMode={focusMode}
             hasLineAnnotations={hasLineAnnotations}
             hasThreadAnnotations={hasThreadAnnotations}
             lineStart={matchingSection.start}
             lineEnd={matchingSection.end}
+            showAllLines
           />,
         );
       }
@@ -2112,14 +2549,15 @@ function DiffViewWithThreads({
         focusMode={focusMode}
         onHoverThread={onHoverThread}
         onReplyThread={onReplyThread}
+        onSetThreadStatus={onSetThreadStatus}
         positions={positions}
         gutterHeight={gutterHeight}
       />
     </div>
   );
-}
+});
 
-function SearchResultsList({
+const SearchResultsList = memo(function SearchResultsList({
   results,
   onSelectFile,
 }: {
@@ -2173,9 +2611,9 @@ function SearchResultsList({
       </div>
     </div>
   );
-}
+});
 
-function SourceContextView({
+const SourceContextView = memo(function SourceContextView({
   filePath,
   sourceContent,
   annotations,
@@ -2187,6 +2625,7 @@ function SourceContextView({
   hasThreadAnnotations,
   lineStart,
   lineEnd,
+  showAllLines,
   title,
 }: {
   filePath: string;
@@ -2204,8 +2643,12 @@ function SourceContextView({
   hasThreadAnnotations: boolean;
   lineStart?: number;
   lineEnd?: number;
+  showAllLines?: boolean;
   title?: string;
 }) {
+  const linePadding = 3;
+  const fullViewEdgeLines = 24;
+  const fullViewExpandThreshold = 120;
   const lines = useMemo(
     () =>
       sourceContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n"),
@@ -2251,16 +2694,64 @@ function SourceContextView({
     return mergeLineRanges(ranges);
   }, [annotations, boundedLineEnd, boundedLineStart, filterLineNumbers, lines.length]);
 
-  const baseVisibleRanges = useMemo(
-    () =>
-      mergeLineRanges(
-        targetRanges.map((range) => ({
-          start: Math.max(boundedLineStart, range.start - 3),
-          end: Math.min(boundedLineEnd, range.end + 3),
-        })),
-      ),
-    [boundedLineEnd, boundedLineStart, targetRanges],
-  );
+  const baseVisibleRanges = useMemo(() => {
+    const paddedTargetRanges = targetRanges.map((range) => ({
+      start: Math.max(boundedLineStart, range.start - linePadding),
+      end: Math.min(boundedLineEnd, range.end + linePadding),
+    }));
+
+    if (!showAllLines) {
+      return mergeLineRanges(paddedTargetRanges);
+    }
+
+    const sectionLength = boundedLineEnd - boundedLineStart + 1;
+    if (sectionLength <= fullViewExpandThreshold) {
+      return [{ start: boundedLineStart, end: boundedLineEnd }];
+    }
+
+    const edgeRanges: LineRange[] = [
+      {
+        start: boundedLineStart,
+        end: Math.min(boundedLineEnd, boundedLineStart + fullViewEdgeLines - 1),
+      },
+      {
+        start: Math.max(boundedLineStart, boundedLineEnd - fullViewEdgeLines + 1),
+        end: boundedLineEnd,
+      },
+    ];
+
+    const focusedRange =
+      focusedLineRange &&
+      (focusedLineRange.side === null || focusedLineRange.side === "new")
+        ? [
+            {
+              start: Math.max(
+                boundedLineStart,
+                focusedLineRange.start - linePadding,
+              ),
+              end: Math.min(
+                boundedLineEnd,
+                focusedLineRange.end + linePadding,
+              ),
+            },
+          ]
+        : [];
+
+    return mergeLineRanges([
+      ...edgeRanges,
+      ...paddedTargetRanges,
+      ...focusedRange,
+    ]);
+  }, [
+    boundedLineEnd,
+    boundedLineStart,
+    focusedLineRange,
+    fullViewEdgeLines,
+    fullViewExpandThreshold,
+    linePadding,
+    showAllLines,
+    targetRanges,
+  ]);
 
   const [revealedRanges, setRevealedRanges] = useState<LineRange[]>([]);
   const revealResetKey = useMemo(
@@ -2269,10 +2760,20 @@ function SourceContextView({
         filePath,
         boundedLineStart,
         boundedLineEnd,
+        linePadding,
+        showAllLines ? "full" : "anchored",
         sourceContent.length,
         targetRanges.map((range) => `${range.start}-${range.end}`).join(","),
       ].join(":"),
-    [boundedLineEnd, boundedLineStart, filePath, sourceContent.length, targetRanges],
+    [
+      boundedLineEnd,
+      boundedLineStart,
+      filePath,
+      linePadding,
+      showAllLines,
+      sourceContent.length,
+      targetRanges,
+    ],
   );
 
   useEffect(() => {
@@ -2328,9 +2829,36 @@ function SourceContextView({
     return rows;
   }, [boundedLineEnd, boundedLineStart, visibleRanges]);
 
+  const highlightedSourceLines = useMemo(() => {
+    const highlighted = new Map<
+      number,
+      ReturnType<typeof highlightDiffLine>
+    >();
+
+    for (const row of rows) {
+      if (row.kind !== "line") {
+        continue;
+      }
+
+      highlighted.set(
+        row.line,
+        highlightDiffLine(
+          lines[row.line - 1] ?? "",
+          filePath,
+          "diff-context",
+        ),
+      );
+    }
+
+    return highlighted;
+  }, [filePath, lines, rows]);
+
   const hasHiddenRanges = rows.some((row) => row.kind === "gap");
 
-  if (targetRanges.length === 0 || boundedLineStart > boundedLineEnd) {
+  if (
+    boundedLineStart > boundedLineEnd ||
+    (!showAllLines && targetRanges.length === 0)
+  ) {
     return null;
   }
 
@@ -2341,6 +2869,18 @@ function SourceContextView({
       }
       return [...current, { start, end }];
     });
+  };
+
+  const expandStep = 8;
+
+  const revealGapTop = (start: number, end: number) => {
+    const count = Math.min(expandStep, end - start + 1);
+    revealRange(start, start + count - 1);
+  };
+
+  const revealGapBottom = (start: number, end: number) => {
+    const count = Math.min(expandStep, end - start + 1);
+    revealRange(end - count + 1, end);
   };
 
   const revealAll = () => {
@@ -2367,6 +2907,9 @@ function SourceContextView({
         {rows.map((row) => {
           if (row.kind === "gap") {
             const hiddenCount = row.to - row.from + 1;
+            const expandChunk = Math.min(expandStep, hiddenCount);
+            const canExpandTop = row.from > boundedLineStart;
+            const canExpandBottom = row.to < boundedLineEnd;
             const label =
               row.from === boundedLineStart
                 ? `Show ${hiddenCount} earlier line${hiddenCount === 1 ? "" : "s"}`
@@ -2375,27 +2918,45 @@ function SourceContextView({
                   : `Show ${hiddenCount} hidden line${hiddenCount === 1 ? "" : "s"}`;
 
             return (
-              <button
+              <div
                 key={row.key}
-                type="button"
-                className="code-line flex w-full items-center px-4 py-1.5 text-left text-[11px] text-[var(--accent-text)] transition-colors duration-150 hover:bg-[var(--bg-3)]"
-                onClick={() => revealRange(row.from, row.to)}
+                className="code-line flex w-full items-center px-4 py-1.5 text-left text-[11px] text-[var(--accent-text)]"
               >
                 <span className="w-12 shrink-0 pr-4 text-right text-[var(--text-3)] opacity-50">
                   ...
                 </span>
                 <span>{label}</span>
-              </button>
+                <span className="ml-auto flex shrink-0 items-center gap-1">
+                  {canExpandTop && (
+                    <button
+                      type="button"
+                      className="inline-flex h-6 min-w-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg-3)] px-2 text-[11px] leading-none text-[var(--text-2)] transition-colors duration-150 hover:border-[var(--text-3)]"
+                      onClick={() => revealGapTop(row.from, row.to)}
+                      aria-label={`Show ${expandChunk} lines above`}
+                    >
+                      ↑{expandChunk}
+                    </button>
+                  )}
+                  {canExpandBottom && (
+                    <button
+                      type="button"
+                      className="inline-flex h-6 min-w-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg-3)] px-2 text-[11px] leading-none text-[var(--text-2)] transition-colors duration-150 hover:border-[var(--text-3)]"
+                      onClick={() => revealGapBottom(row.from, row.to)}
+                      aria-label={`Show ${expandChunk} lines below`}
+                    >
+                      ↓{expandChunk}
+                    </button>
+                  )}
+                </span>
+              </div>
             );
           }
 
           const line = row.line;
-          const lineText = lines[line - 1] ?? "";
-          const highlightedLine = highlightDiffLine(
-            lineText,
-            filePath,
-            "diff-context",
-          );
+          const highlightedLine = highlightedSourceLines.get(line);
+          if (!highlightedLine) {
+            return null;
+          }
           const annotationCategories = resolveAnnotationCategoriesForLine(
             annotatedLineCategories,
             line,
@@ -2426,7 +2987,7 @@ function SourceContextView({
               data-line={line}
               data-line-side="new"
               className={cx(
-                "code-line relative flex min-h-[21px] px-4 transition-[opacity,background-color] duration-200 hover:bg-[rgba(255,255,255,0.02)]",
+                "code-line relative flex min-h-[21px] items-start px-4 transition-[opacity,background-color] duration-200 hover:bg-[rgba(255,255,255,0.02)]",
                 hasAnnotation && "bg-[var(--thread-highlight-soft)]",
                 isHighlighted && "bg-[var(--thread-highlight-strong)]",
                 isDimmed && !isHighlighted && "opacity-[0.22]",
@@ -2453,7 +3014,7 @@ function SourceContextView({
               <span className="w-12 shrink-0 select-none pr-4 text-right text-[var(--text-3)] opacity-50">
                 {line}
               </span>
-              <span className="relative min-w-0 flex-1 whitespace-pre text-[var(--text-2)]">
+              <span className="relative min-w-0 flex-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[var(--text-2)]">
                 {highlightedLine.prefix !== null && (
                   <span className="text-[var(--text-3)]">
                     {highlightedLine.prefix}
@@ -2481,15 +3042,19 @@ function SourceContextView({
       )}
     </div>
   );
-}
+});
 
-function ActivityPanel({ overview }: { overview: ProjectOverview | null }) {
+const ActivityPanel = memo(function ActivityPanel({
+  overview,
+}: {
+  overview: ProjectOverview | null;
+}) {
   const events = overview?.recentEvents ?? [];
   const recentEvents = events.slice(-20);
 
   return (
-    <div className="flex flex-col">
-      <div className="sticky top-0 z-[1] flex items-center gap-2 bg-[var(--bg-1)] px-3 py-2.5 pb-2">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 flex items-center gap-2 bg-[var(--bg-1)] px-3 py-2.5 pb-2">
         <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--text-3)]">
           Activity
         </span>
@@ -2497,7 +3062,8 @@ function ActivityPanel({ overview }: { overview: ProjectOverview | null }) {
           {events.length}
         </span>
       </div>
-      <div className="flex flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex flex-col">
         {recentEvents.map((event) => (
           <div
             key={event.id}
@@ -2527,10 +3093,11 @@ function ActivityPanel({ overview }: { overview: ProjectOverview | null }) {
             No events yet
           </div>
         )}
+        </div>
       </div>
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  App                                                                */
@@ -2541,6 +3108,7 @@ export function App() {
     readInitialWorkspaceState(),
   );
   const [overview, setOverview] = useState<ProjectOverview | null>(null);
+  const [projectPaths, setProjectPaths] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -2559,50 +3127,151 @@ export function App() {
     () => initialWorkspaceState?.sidebarTab ?? "files",
   );
   const [focusMode, setFocusMode] = useState(true);
+  const [showResolvedThreads, setShowResolvedThreads] = useState(true);
   const [hasPersistedWorkspaceState, setHasPersistedWorkspaceState] = useState(
     () => initialWorkspaceState !== null,
   );
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const hydratedWorkspaceStateKeyRef = useRef<string | null>(null);
+  const overviewRequestRef = useRef<Promise<void> | null>(null);
+  const overviewAbortRef = useRef<AbortController | null>(null);
+  const overviewSnapshotKeyRef = useRef<string>("");
+  const activeFileContentCacheRef = useRef<Map<string, string>>(new Map());
   const pageWorkspaceStateStorageKey = getPageWorkspaceStateStorageKey();
   const workspaceStateStorageKey = getWorkspaceStateStorageKey(
     overview?.session ?? null,
   );
 
-  const loadOverview = useEffectEvent(async () => {
-    try {
-      const next = await fetchOverview();
-      setOverview(next);
-      setError(null);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error ? loadError.message : String(loadError),
-      );
-    }
-  });
+  const loadOverview = useCallback(
+    async ({ force = false }: { force?: boolean } = {}) => {
+      if (!force && overviewRequestRef.current) {
+        return overviewRequestRef.current;
+      }
+
+      if (force) {
+        overviewAbortRef.current?.abort();
+      }
+
+      const controller = new AbortController();
+      overviewAbortRef.current = controller;
+
+      let request: Promise<void> | null = null;
+      request = (async () => {
+        try {
+          const next = await fetchOverview({ signal: controller.signal });
+          const nextSnapshotKey = getOverviewSnapshotKey(next);
+
+          if (nextSnapshotKey !== overviewSnapshotKeyRef.current) {
+            overviewSnapshotKeyRef.current = nextSnapshotKey;
+            startTransition(() => {
+              setOverview(next);
+            });
+          }
+          setError((current) => (current === null ? current : null));
+        } catch (loadError) {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          const message =
+            loadError instanceof Error ? loadError.message : String(loadError);
+          setError((current) => (current === message ? current : message));
+        } finally {
+          if (overviewAbortRef.current === controller) {
+            overviewAbortRef.current = null;
+          }
+          if (overviewRequestRef.current === request) {
+            overviewRequestRef.current = null;
+          }
+        }
+      })();
+
+      overviewRequestRef.current = request;
+      return request;
+    },
+    [],
+  );
+
+  const loadProjectTree = useCallback(
+    async ({ signal }: { signal?: AbortSignal } = {}) => {
+      try {
+        const next = await fetchProjectTree({ signal });
+        startTransition(() => {
+          setProjectPaths((current) =>
+            areStringArraysEqual(current, next) ? current : next,
+          );
+        });
+        setError((current) => (current === null ? current : null));
+      } catch (loadError) {
+        if (signal?.aborted) {
+          return;
+        }
+
+        const message =
+          loadError instanceof Error ? loadError.message : String(loadError);
+        setError((current) => (current === message ? current : message));
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    void loadOverview();
+    const projectTreeController = new AbortController();
+
+    void loadProjectTree({ signal: projectTreeController.signal });
+    void loadOverview({ force: true });
+
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
       void loadOverview();
-    }, 2000);
-    return () => window.clearInterval(interval);
-  }, [loadOverview]);
+    }, OVERVIEW_POLL_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void loadOverview({ force: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      projectTreeController.abort();
+      overviewAbortRef.current?.abort();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(interval);
+    };
+  }, [loadOverview, loadProjectTree]);
 
   useEffect(() => {
-    if (!deferredSearchText.trim()) {
-      setSearchResults([]);
+    const query = deferredSearchText.trim();
+
+    if (!query) {
+      setSearchResults((current) => (current.length === 0 ? current : []));
       return;
     }
 
-    let cancelled = false;
-    void searchCanary(deferredSearchText).then((results) => {
-      if (!cancelled) setSearchResults(results);
-    });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void searchCanary(query, { signal: controller.signal })
+        .then((results) => {
+          if (!controller.signal.aborted) {
+            startTransition(() => {
+              setSearchResults(results);
+            });
+          }
+        })
+        .catch(() => {
+          // Ignore search failures so the rest of the UI stays responsive.
+        });
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeout);
     };
   }, [deferredSearchText]);
 
@@ -2664,20 +3333,25 @@ export function App() {
     workspaceStateStorageKey,
   ]);
 
-  const openFile = useCallback(
-    (filePath: string) => {
-      if (!openTabs.includes(filePath)) {
-        setOpenTabs((prev) => [...prev, filePath]);
-      }
-      setActiveTab(filePath);
-    },
-    [openTabs],
-  );
+  const openFile = useCallback((filePath: string) => {
+    setOpenTabs((prev) =>
+      prev.includes(filePath) ? prev : [...prev, filePath],
+    );
+    setActiveTab(filePath);
+  }, []);
 
   const handleReplyThread = useCallback(
     async (threadId: string, body: string) => {
       await replyToThread(threadId, body);
-      await loadOverview();
+      await loadOverview({ force: true });
+    },
+    [loadOverview],
+  );
+
+  const handleSetThreadStatus = useCallback(
+    async (threadId: string, status: "open" | "resolved") => {
+      await setThreadStatus(threadId, status);
+      await loadOverview({ force: true });
     },
     [loadOverview],
   );
@@ -2704,13 +3378,38 @@ export function App() {
     });
   }, []);
 
+  const allKnownPaths = useMemo(() => {
+    const paths = new Set(projectPaths);
+
+    for (const file of overview?.changedFiles ?? []) {
+      paths.add(file.filePath);
+    }
+    for (const thread of overview?.threads ?? []) {
+      if (thread.filePath) {
+        paths.add(thread.filePath);
+      }
+    }
+    for (const brief of overview?.fileBriefs ?? []) {
+      paths.add(brief.filePath);
+    }
+
+    return [...paths].sort((left, right) => left.localeCompare(right));
+  }, [overview, projectPaths]);
+
   const fileTree = useMemo(
     () =>
       buildFileTree(
+        allKnownPaths,
         overview?.changedFiles ?? [],
         overview?.threads ?? [],
+        overview?.fileBriefs ?? [],
       ),
-    [overview],
+    [allKnownPaths, overview],
+  );
+
+  const visibleFileTreeRows = useMemo(
+    () => flattenVisibleTree(fileTree, expandedDirs),
+    [expandedDirs, fileTree],
   );
 
   // Auto-expand top-level dirs
@@ -2720,12 +3419,45 @@ export function App() {
       fileTree.length > 0 &&
       expandedDirs.size === 0
     ) {
-      const topDirs = fileTree.filter((n) => !n.isFile).map((n) => n.path);
+      const topDirs = fileTree
+        .filter((n) => !n.isFile && n.hasReviewSignal)
+        .map((n) => n.path);
       if (topDirs.length > 0) {
         setExpandedDirs(new Set(topDirs));
       }
     }
   }, [expandedDirs.size, fileTree, hasPersistedWorkspaceState]);
+
+  const preferredFile = useMemo(() => {
+    if (!overview || allKnownPaths.length === 0) {
+      return allKnownPaths[0] ?? null;
+    }
+
+    const changedFiles = new Set(overview.changedFiles.map((file) => file.filePath));
+    const openThreadFiles = new Set(
+      overview.threads
+        .filter((thread) => thread.status === "open" && thread.filePath)
+        .map((thread) => thread.filePath!),
+    );
+    const briefFiles = new Set(overview.fileBriefs.map((brief) => brief.filePath));
+
+    return [...allKnownPaths].sort((left, right) => {
+      const score = (filePath: string) =>
+        (changedFiles.has(filePath) ? 4 : 0) +
+        (openThreadFiles.has(filePath) ? 2 : 0) +
+        (briefFiles.has(filePath) ? 1 : 0);
+      return score(right) - score(left) || left.localeCompare(right);
+    })[0] ?? null;
+  }, [allKnownPaths, overview]);
+
+  useEffect(() => {
+    if (activeTab || openTabs.length > 0 || !preferredFile) {
+      return;
+    }
+
+    setOpenTabs([preferredFile]);
+    setActiveTab(preferredFile);
+  }, [activeTab, openTabs.length, preferredFile]);
 
   const stats = useMemo(() => {
     if (!overview) {
@@ -2750,33 +3482,93 @@ export function App() {
   const [activeFileContentLoading, setActiveFileContentLoading] = useState(false);
   const [activeFileContentError, setActiveFileContentError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const changedFilesByPath = useMemo(() => {
+    const files = new Map<string, ChangedFileSummary>();
+    for (const file of overview?.changedFiles ?? []) {
+      files.set(file.filePath, file);
+    }
+    return files;
+  }, [overview?.changedFiles]);
 
+  const fileBriefsByPath = useMemo(() => {
+    const briefs = new Map<string, FileBriefRecord>();
+    for (const brief of overview?.fileBriefs ?? []) {
+      briefs.set(brief.filePath, brief);
+    }
+    return briefs;
+  }, [overview?.fileBriefs]);
+
+  const annotationsByFile = useMemo(
+    () => buildAnnotationsByFile(overview?.threads ?? []),
+    [overview?.threads],
+  );
+
+  const activeFileChange = useMemo(() => {
     if (!activeTab) {
+      return null;
+    }
+
+    return changedFilesByPath.get(activeTab) ?? null;
+  }, [activeTab, changedFilesByPath]);
+
+  const activeFileContentCacheKey = useMemo(() => {
+    if (!activeTab) {
+      return null;
+    }
+
+    return getFileContentCacheKey(activeTab, activeFileChange);
+  }, [activeFileChange, activeTab]);
+
+  useEffect(() => {
+    if (!activeTab || !activeFileContentCacheKey) {
       setActiveFileContent(null);
       setActiveFileContentError(null);
       setActiveFileContentLoading(false);
       return;
     }
 
-    const loadFileContent = async () => {
-      setActiveFileContentLoading(true);
+    const cached = activeFileContentCacheRef.current.get(activeFileContentCacheKey);
+    if (cached !== undefined) {
+      activeFileContentCacheRef.current.delete(activeFileContentCacheKey);
+      activeFileContentCacheRef.current.set(activeFileContentCacheKey, cached);
+      setActiveFileContent(cached);
       setActiveFileContentError(null);
+      setActiveFileContentLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setActiveFileContent(null);
+    setActiveFileContentError(null);
+    setActiveFileContentLoading(true);
+
+    const loadFileContent = async () => {
       try {
-        const content = await fetchFileContent(activeTab);
-        if (!cancelled) {
-          setActiveFileContent(content);
+        const content = await fetchFileContent(activeTab, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) {
+          return;
         }
+
+        cacheFileContent(
+          activeFileContentCacheRef.current,
+          activeFileContentCacheKey,
+          content,
+        );
+        setActiveFileContent(content);
       } catch (error) {
-        if (!cancelled) {
-          setActiveFileContentError(
-            error instanceof Error ? error.message : "Failed to fetch file",
-          );
-          setActiveFileContent(null);
+        if (controller.signal.aborted) {
+          return;
         }
+
+        setActiveFileContentError(
+          error instanceof Error ? error.message : "Failed to fetch file",
+        );
+        setActiveFileContent(null);
       } finally {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setActiveFileContentLoading(false);
         }
       }
@@ -2785,34 +3577,34 @@ export function App() {
     void loadFileContent();
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [activeTab]);
+  }, [activeFileContentCacheKey, activeTab]);
 
   const activeFilePatch = useMemo(() => {
-    if (!activeTab || !overview) return null;
-    return (
-      overview.changedFiles.find((f) => f.filePath === activeTab)?.patch ?? null
-    );
-  }, [activeTab, overview]);
+    return activeFileChange?.patch ?? null;
+  }, [activeFileChange]);
 
   const activeFileAnnotations = useMemo(() => {
-    if (!activeTab || !overview) return [];
-    return getAnnotationsForFile(
-      activeTab,
-      overview.threads,
-    );
-  }, [activeTab, overview]);
+    if (!activeTab) {
+      return EMPTY_FILE_ANNOTATIONS;
+    }
+
+    return annotationsByFile.get(activeTab) ?? EMPTY_FILE_ANNOTATIONS;
+  }, [activeTab, annotationsByFile]);
+
+  const visibleFileAnnotations = useMemo(
+    () =>
+      showResolvedThreads
+        ? activeFileAnnotations
+        : activeFileAnnotations.filter((annotation) => annotation.status !== "resolved"),
+    [activeFileAnnotations, showResolvedThreads],
+  );
 
   const activeFileBrief = useMemo(() => {
-    if (!activeTab || !overview) return null;
-    return overview.fileBriefs.find((b) => b.filePath === activeTab) ?? null;
-  }, [activeTab, overview]);
-
-  const activeFileChange = useMemo(() => {
-    if (!activeTab || !overview) return null;
-    return overview.changedFiles.find((f) => f.filePath === activeTab) ?? null;
-  }, [activeTab, overview]);
+    if (!activeTab) return null;
+    return fileBriefsByPath.get(activeTab) ?? null;
+  }, [activeTab, fileBriefsByPath]);
 
   const isSearching = deferredSearchText.trim().length > 0;
 
@@ -2830,7 +3622,7 @@ export function App() {
             <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-3)]">
               <StatusDot status={overview.session.status} />
               <span className="font-medium text-[var(--text-2)]">
-                {overview.session.agentKind}
+                {overview.session.actorName ?? overview.session.agentKind}
               </span>
               <span>{overview.session.status}</span>
             </div>
@@ -2975,32 +3767,26 @@ export function App() {
             </button>
           </div>
 
-          <div className="sidebar-content overflow-x-hidden overflow-y-auto">
+          <div className="sidebar-content flex min-h-0 overflow-hidden">
             {sidebarTab === "files" ? (
-              <div className="flex flex-col">
-                <div className="sticky top-0 z-[1] bg-[var(--bg-1)] px-3 py-2.5 pb-2">
+              <div className="flex h-full min-h-0 flex-1 flex-col">
+                <div className="shrink-0 bg-[var(--bg-1)] px-3 py-2.5 pb-2">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--text-3)]">
-                    Explorer
+                    Repository
                   </span>
                 </div>
-                <div className="flex flex-col">
-                  {fileTree.map((node) => (
-                    <FileTreeItem
-                      key={node.path}
-                      node={node}
-                      depth={0}
-                      expanded={expandedDirs}
-                      onToggle={toggleDir}
-                      onSelect={openFile}
-                      activeFile={activeTab}
-                    />
-                  ))}
-                  {fileTree.length === 0 && (
-                    <div className="px-4 py-6 text-center text-[12px] text-[var(--text-3)]">
-                      <span>Waiting for file changes...</span>
-                    </div>
-                  )}
-                </div>
+                {fileTree.length === 0 ? (
+                  <div className="flex flex-1 items-center justify-center px-4 py-6 text-center text-[12px] text-[var(--text-3)]">
+                    <span>Loading repository...</span>
+                  </div>
+                ) : (
+                  <FileTreeList
+                    rows={visibleFileTreeRows}
+                    activeFile={activeTab}
+                    onToggle={toggleDir}
+                    onSelect={openFile}
+                  />
+                )}
               </div>
             ) : (
               <ActivityPanel overview={overview} />
@@ -3020,9 +3806,7 @@ export function App() {
                 <div className="tab-bar flex h-[36px] shrink-0 overflow-x-auto overflow-y-hidden border-b border-[var(--border)] bg-[var(--bg-1)]">
                   {openTabs.map((tab) => {
                     const name = tab.split("/").pop() ?? tab;
-                    const change = overview?.changedFiles.find(
-                      (f) => f.filePath === tab,
-                    );
+                    const change = changedFilesByPath.get(tab);
                     return (
                       <button
                         key={tab}
@@ -3095,10 +3879,29 @@ export function App() {
                       )}
                       {activeFileAnnotations.length > 0 && (
                         <span className="rounded-[4px] bg-[var(--accent-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent-text)]">
-                          {activeFileAnnotations.length} thread
-                          {activeFileAnnotations.length !== 1 ? "s" : ""}
+                          {(showResolvedThreads
+                            ? activeFileAnnotations.length
+                            : visibleFileAnnotations.length)} thread
+                          {(showResolvedThreads
+                            ? activeFileAnnotations.length
+                            : visibleFileAnnotations.length) !== 1
+                            ? "s"
+                            : ""}
+                          {showResolvedThreads ? "" : " open"}
                         </span>
                       )}
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-[4px] border border-[var(--border)] bg-[var(--bg-2)] px-2 py-0.5 text-[11px] text-[var(--text-3)] transition-colors duration-150 hover:border-[var(--border-hover)] hover:text-[var(--text-2)]">
+                        <input
+                          type="checkbox"
+                          checked={showResolvedThreads}
+                          onChange={(event) =>
+                            setShowResolvedThreads(event.target.checked)
+                          }
+                          style={{ accentColor: "var(--thread-highlight-solid)" }}
+                          className="h-3.5 w-3.5 cursor-pointer"
+                        />
+                        Show resolved
+                      </label>
                     </div>
                   </div>
 
@@ -3109,9 +3912,10 @@ export function App() {
                     fileContent={activeFileContent}
                     fileContentLoading={activeFileContentLoading}
                     fileContentError={activeFileContentError}
-                    annotations={activeFileAnnotations}
+                    annotations={visibleFileAnnotations}
                     focusMode={focusMode}
                     onReplyThread={handleReplyThread}
+                    onSetThreadStatus={handleSetThreadStatus}
                   />
                 </div>
               ) : (
@@ -3121,8 +3925,8 @@ export function App() {
                       canary
                     </h1>
                     <p className="mb-8 text-[14px] text-[var(--text-3)]">
-                      Inspect diffs, file briefs, and the review threads your
-                      agent opened.
+                      Inspect the repository, current-run diffs, file briefs,
+                      and review threads across runs.
                     </p>
                     <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
                       <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--border)] bg-[var(--bg-3)] px-2 py-3.5">
@@ -3151,7 +3955,8 @@ export function App() {
                       </div>
                     </div>
                     <p className="text-[12px] text-[var(--text-3)]">
-                      Select a file from the explorer to begin reviewing.
+                      Select a file from the repository tree to begin
+                      reviewing.
                     </p>
                   </div>
                 </div>
@@ -3167,7 +3972,7 @@ export function App() {
             <>
               <StatusDot status={overview.session.status} />
               <span>
-                {overview.session.agentKind} session {overview.session.status}
+                {(overview.session.actorName ?? overview.session.agentKind)} session {overview.session.status}
               </span>
             </>
           )}
