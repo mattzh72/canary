@@ -2,7 +2,7 @@ class Canary < Formula
   desc "Local code review monitor and CLI for AI-assisted development"
   homepage "https://github.com/mattzh72/canary"
   url "https://github.com/mattzh72/canary/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 ""
+  sha256 "7c12efc6ff6578fdc861e4598cd5b0e546eaa7f71ca01c78f3dd03062dc743be"
   license "MIT"
 
   depends_on "node@20"
