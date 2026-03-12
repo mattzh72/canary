@@ -3,55 +3,71 @@
 
 :root {
   color-scheme: dark;
-  --bg-0: #0a0a0b;
-  --bg-1: #111113;
-  --bg-2: #18181b;
-  --bg-3: #1f1f23;
-  --bg-4: #27272b;
-  --border: rgba(255, 255, 255, 0.06);
-  --border-hover: rgba(255, 255, 255, 0.1);
-  --border-active: rgba(255, 255, 255, 0.16);
-  --text-1: #ededef;
-  --text-2: #a1a1a6;
-  --text-3: #6b6b70;
+
+  /* ── Surfaces ────────────────────────────────────── */
+  --bg-0: #0c0c0d;
+  --bg-1: #121214;
+  --bg-2: #19191c;
+  --bg-3: #222225;
+  --bg-4: #2a2a2e;
+
+  /* ── Borders ─────────────────────────────────────── */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  --border-active: rgba(255, 255, 255, 0.18);
+
+  /* ── Text ────────────────────────────────────────── */
+  --text-1: #e8e8eb;
+  --text-2: #9b9ba1;
+  --text-3: #5f5f66;
+
+  /* ── Accent (primary) ────────────────────────────── */
   --accent: #7c6aef;
-  --accent-muted: rgba(124, 106, 239, 0.15);
+  --accent-muted: rgba(124, 106, 239, 0.12);
   --accent-text: #a899f7;
-  --green: #3dd68c;
-  --green-muted: rgba(61, 214, 140, 0.12);
-  --red: #ff6b6b;
-  --red-muted: rgba(255, 107, 107, 0.12);
-  --amber: #ffbe3d;
-  --amber-muted: rgba(255, 190, 61, 0.12);
-  --blue: #5b9cf5;
-  --blue-muted: rgba(91, 156, 245, 0.12);
-  --thread-bg: #111214;
-  --thread-surface-high: rgba(255, 107, 107, 0.08);
-  --thread-surface-medium: rgba(255, 190, 61, 0.08);
-  --thread-surface-low: rgba(91, 156, 245, 0.08);
-  --thread-rail-high: #ff6b6b;
-  --thread-rail-medium: #ffd84d;
-  --thread-rail-low: #69b3ff;
-  --thread-line-high: rgba(255, 107, 107, 0.16);
-  --thread-line-medium: rgba(255, 190, 61, 0.16);
-  --thread-line-low: rgba(91, 156, 245, 0.16);
-  --thread-edge-high: rgba(255, 107, 107, 0.34);
-  --thread-edge-medium: rgba(255, 190, 61, 0.32);
-  --thread-edge-low: rgba(105, 179, 255, 0.3);
-  --thread-glow-high: rgba(255, 66, 66, 0.2);
-  --thread-glow-medium: rgba(255, 216, 77, 0.2);
-  --thread-glow-low: rgba(105, 179, 255, 0.18);
-  --thread-text-1: #f5f5f6;
-  --thread-text-2: #c9c9ce;
-  --thread-text-3: #87878f;
-  --thread-border: rgba(255, 255, 255, 0.08);
+
+  /* ── Semantic: red (risk) ────────────────────────── */
+  --red: #e5534b;
+  --red-muted: rgba(229, 83, 75, 0.10);
+  --red-edge: rgba(229, 83, 75, 0.32);
+  --red-line: rgba(229, 83, 75, 0.14);
+
+  /* ── Semantic: amber (question) ──────────────────── */
+  --amber: #d4a72c;
+  --amber-muted: rgba(212, 167, 44, 0.10);
+  --amber-edge: rgba(212, 167, 44, 0.30);
+  --amber-line: rgba(212, 167, 44, 0.14);
+
+  /* ── Semantic: blue (decision) ───────────────────── */
+  --blue: #539bf5;
+  --blue-muted: rgba(83, 155, 245, 0.10);
+  --blue-edge: rgba(83, 155, 245, 0.28);
+  --blue-line: rgba(83, 155, 245, 0.14);
+
+  /* ── Semantic: green ─────────────────────────────── */
+  --green: #3fb950;
+  --green-muted: rgba(63, 185, 80, 0.10);
+  --green-scope: #3fb950;
+  --green-edge: rgba(63, 185, 80, 0.28);
+  --green-line: rgba(63, 185, 80, 0.14);
+
+  /* ── Teal (focus / highlight) ────────────────────── */
+  --teal: #58a6a6;
+  --teal-muted: rgba(88, 166, 166, 0.10);
+  --teal-border: rgba(88, 166, 166, 0.28);
+  --teal-strong: rgba(88, 166, 166, 0.18);
+  --teal-text: #8ecfcf;
+
+  /* ── Thread card chrome ──────────────────────────── */
+  --thread-bg: #131315;
+  --thread-text-1: #e8e8eb;
+  --thread-text-2: #b8b8be;
+  --thread-text-3: #717178;
+  --thread-border: rgba(255, 255, 255, 0.07);
   --thread-border-strong: rgba(255, 255, 255, 0.12);
-  --thread-shadow: rgba(0, 0, 0, 0.28);
-  --thread-highlight-soft: rgba(107, 188, 167, 0.1);
-  --thread-highlight-strong: rgba(107, 188, 167, 0.22);
-  --thread-highlight-border: rgba(107, 188, 167, 0.34);
-  --thread-highlight-solid: #6bbca7;
-  --thread-highlight-text: #a9ddd1;
+  --thread-shadow: rgba(0, 0, 0, 0.32);
+
+  /* ── Fonts ───────────────────────────────────────── */
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", "Consolas", monospace;
 }
@@ -106,10 +122,17 @@
   height: 8px;
 }
 
+.review-stream-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
 .code-view::-webkit-scrollbar-thumb,
-.code-and-threads::-webkit-scrollbar-thumb {
+.code-and-threads::-webkit-scrollbar-thumb,
+.review-stream-scroll::-webkit-scrollbar-thumb {
   background: var(--bg-4);
   border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 .code-and-threads > .code-view {
@@ -130,11 +153,11 @@
 .syntax-line .token.prolog,
 .syntax-line .token.doctype,
 .syntax-line .token.cdata {
-  color: #6b7280;
+  color: #545459;
 }
 
 .syntax-line .token.punctuation {
-  color: #94a3b8;
+  color: #848490;
 }
 
 .syntax-line .token.property,
@@ -144,7 +167,7 @@
 .syntax-line .token.constant,
 .syntax-line .token.symbol,
 .syntax-line .token.deleted {
-  color: #f59e0b;
+  color: #d4a72c;
 }
 
 .syntax-line .token.selector,
@@ -153,7 +176,7 @@
 .syntax-line .token.char,
 .syntax-line .token.builtin,
 .syntax-line .token.inserted {
-  color: #34d399;
+  color: #3fb950;
 }
 
 .syntax-line .token.operator,
@@ -161,7 +184,7 @@
 .syntax-line .token.url,
 .syntax-line .language-css .token.string,
 .syntax-line .style .token.string {
-  color: #cbd5e1;
+  color: #b0b0b8;
 }
 
 .syntax-line .token.atrule,
@@ -172,13 +195,13 @@
 
 .syntax-line .token.function,
 .syntax-line .token.class-name {
-  color: #60a5fa;
+  color: #539bf5;
 }
 
 .syntax-line .token.regex,
 .syntax-line .token.important,
 .syntax-line .token.variable {
-  color: #fda4af;
+  color: #e5534b;
 }
 
 .line-clamp-3 {
@@ -198,4 +221,189 @@
   .thread-card-positioned + .thread-card-positioned {
     margin-top: 12px;
   }
+}
+
+/* ── Focus Review Stream ─────────────────────────────── */
+
+.focus-stream {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg-1);
+}
+
+.focus-stream::-webkit-scrollbar {
+  width: 10px;
+}
+
+.focus-stream::-webkit-scrollbar-thumb {
+  background: var(--bg-4);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.focus-stream::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.focus-stream-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 12px 0 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+/* Mini TOC file chips row */
+.focus-stream-toc {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 6px 0 8px;
+  scrollbar-width: none;
+}
+
+.focus-stream-toc::-webkit-scrollbar {
+  display: none;
+}
+
+.focus-stream-toc-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.12s, background 0.12s;
+}
+
+.focus-stream-toc-chip:hover {
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.focus-stream-toc-chip-active {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.focus-stream-toc-chip-active::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--teal);
+}
+
+.focus-stream-section {
+  padding-top: 28px;
+}
+
+.focus-stream-section + .focus-stream-section {
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+/* Code snippet file label */
+.code-snippet-file-label {
+  font-size: 10px;
+  font-family: "Berkeley Mono", var(--font-mono);
+  color: var(--text-3);
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Review items: code snippet + thread card unified */
+.review-item {
+  margin-bottom: 24px;
+}
+
+.review-item > .code-snippet {
+  border-radius: 12px 12px 0 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+}
+
+.review-item > .code-snippet + div {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.review-item-standalone {
+  margin-bottom: 24px;
+}
+
+/* Code snippet */
+.code-snippet {
+  background: var(--bg-1);
+  overflow: hidden;
+}
+
+.code-snippet-loading {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.code-snippet-lines {
+  display: flex;
+  flex-direction: column;
+  font-family: "Berkeley Mono", var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  font-variant-ligatures: none;
+}
+
+.code-snippet-line {
+  display: flex;
+  padding: 0 12px 0 0;
+  min-height: 22px;
+  position: relative;
+  color: var(--text-3);
+  transition: color 0.1s;
+}
+
+.code-snippet-annotated {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.code-snippet-annotated::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--snippet-accent, var(--accent));
+  border-radius: 0 2px 2px 0;
+}
+
+.code-snippet-gutter {
+  display: inline-flex;
+  justify-content: flex-end;
+  padding: 0 12px 0 14px;
+  color: var(--text-3);
+  opacity: 0.5;
+  user-select: none;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-snippet-code {
+  flex: 1;
+  min-width: 0;
+  white-space: pre;
 }

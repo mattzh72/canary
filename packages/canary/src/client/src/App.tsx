@@ -85,6 +85,15 @@ interface FileAnnotation {
   }[];
 }
 
+interface ReviewSection {
+  filePath: string;
+  annotations: FileAnnotation[];
+  brief: FileBriefRecord | null;
+  change: ChangedFileSummary | null;
+  totalThreads: number;
+  openThreads: number;
+}
+
 interface PersistedWorkspaceState {
   openTabs: string[];
   activeTab: string | null;
@@ -174,8 +183,8 @@ function avatarValueToSrc(value: string | null): string | null {
 
 function authorTone(authorType: ThreadRecord["authorType"]) {
   return authorType === "human"
-    ? "bg-[rgba(107,188,167,0.2)] text-[var(--thread-highlight-text)]"
-    : "bg-[rgba(124,106,239,0.2)] text-[var(--accent-text)]";
+    ? "bg-[var(--teal-muted)] text-[var(--teal-text)]"
+    : "bg-[var(--accent-muted)] text-[var(--accent-text)]";
 }
 
 function AuthorMeta({
@@ -197,7 +206,7 @@ function AuthorMeta({
         <img
           src={avatarSrc}
           alt={author}
-          className="h-5 w-5 shrink-0 rounded-full border border-[rgba(255,255,255,0.08)]"
+          className="h-5 w-5 shrink-0 rounded-full border border-[var(--border)]"
         />
       ) : (
         <span
@@ -471,7 +480,7 @@ function threadTypeColor(category?: ThreadRecord["type"] | string): string {
   const normalizedCategory = normalizeThreadCategory(category);
   if (normalizedCategory === "risk") return "var(--red)";
   if (normalizedCategory === "question") return "var(--amber)";
-  if (normalizedCategory === "scope_change") return "#49b675";
+  if (normalizedCategory === "scope_change") return "var(--green-scope)";
   return "var(--blue)";
 }
 
@@ -511,89 +520,89 @@ function threadTone(category?: ThreadRecord["type"] | string): {
 
   if (normalizedCategory === "risk") {
     return {
-      restBorderClass: "border-[var(--thread-edge-high)]",
-      hoverBorderClass: "hover:border-[var(--thread-edge-high)]",
+      restBorderClass: "border-[var(--red-edge)]",
+      hoverBorderClass: "hover:border-[var(--red-edge)]",
       hoverShadowClass:
-        "hover:shadow-[0_0_0_1px_var(--thread-edge-high),0_24px_56px_-32px_var(--thread-shadow)]",
+        "hover:shadow-[0_0_0_1px_var(--red-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       highlightedCardClass:
-        "border-[var(--thread-edge-high)] shadow-[0_0_0_1px_var(--thread-edge-high),0_24px_56px_-32px_var(--thread-shadow)]",
+        "border-[var(--red-edge)] shadow-[0_0_0_1px_var(--red-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       connectorClass:
-        "border-t-[var(--thread-rail-high)] before:bg-[var(--thread-rail-high)] before:shadow-[0_0_0_4px_var(--thread-glow-high)]",
-      lineHighlightClass: "bg-[var(--thread-line-high)]",
-      lineAccentClass: "bg-[var(--thread-rail-high)]",
-      surfaceClass: "var(--thread-surface-high)",
-      connectorColor: "#ff4242",
-      connectorGlow: "var(--thread-glow-high)",
+        "border-t-[var(--red)] before:bg-[var(--red)] before:shadow-[0_0_0_3px_var(--red-muted)]",
+      lineHighlightClass: "bg-[var(--red-line)]",
+      lineAccentClass: "bg-[var(--red)]",
+      surfaceClass: "var(--red-muted)",
+      connectorColor: "var(--red)",
+      connectorGlow: "var(--red-muted)",
     };
   }
 
   if (normalizedCategory === "question") {
     return {
-      restBorderClass: "border-[var(--thread-edge-medium)]",
-      hoverBorderClass: "hover:border-[var(--thread-edge-medium)]",
+      restBorderClass: "border-[var(--amber-edge)]",
+      hoverBorderClass: "hover:border-[var(--amber-edge)]",
       hoverShadowClass:
-        "hover:shadow-[0_0_0_1px_var(--thread-edge-medium),0_24px_56px_-32px_var(--thread-shadow)]",
+        "hover:shadow-[0_0_0_1px_var(--amber-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       highlightedCardClass:
-        "border-[var(--thread-edge-medium)] shadow-[0_0_0_1px_var(--thread-edge-medium),0_24px_56px_-32px_var(--thread-shadow)]",
+        "border-[var(--amber-edge)] shadow-[0_0_0_1px_var(--amber-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       connectorClass:
-        "border-t-[var(--thread-rail-medium)] before:bg-[var(--thread-rail-medium)] before:shadow-[0_0_0_4px_var(--thread-glow-medium)]",
-      lineHighlightClass: "bg-[var(--thread-line-medium)]",
-      lineAccentClass: "bg-[var(--thread-rail-medium)]",
-      surfaceClass: "var(--thread-surface-medium)",
-      connectorColor: "#ffd84d",
-      connectorGlow: "var(--thread-glow-medium)",
+        "border-t-[var(--amber)] before:bg-[var(--amber)] before:shadow-[0_0_0_3px_var(--amber-muted)]",
+      lineHighlightClass: "bg-[var(--amber-line)]",
+      lineAccentClass: "bg-[var(--amber)]",
+      surfaceClass: "var(--amber-muted)",
+      connectorColor: "var(--amber)",
+      connectorGlow: "var(--amber-muted)",
     };
   }
 
   if (normalizedCategory === "scope_change") {
     return {
-      restBorderClass: "border-[#49b675]",
-      hoverBorderClass: "hover:border-[#49b675]",
+      restBorderClass: "border-[var(--green-edge)]",
+      hoverBorderClass: "hover:border-[var(--green-edge)]",
       hoverShadowClass:
-        "hover:shadow-[0_0_0_1px_#49b675,0_24px_56px_-32px_rgba(73,182,117,0.28)]",
+        "hover:shadow-[0_0_0_1px_var(--green-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       highlightedCardClass:
-        "border-[#49b675] shadow-[0_0_0_1px_#49b675,0_24px_56px_-32px_rgba(73,182,117,0.28)]",
+        "border-[var(--green-edge)] shadow-[0_0_0_1px_var(--green-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       connectorClass:
-        "border-t-[#49b675] before:bg-[#49b675] before:shadow-[0_0_0_4px_rgba(73,182,117,0.18)]",
-      lineHighlightClass: "bg-[rgba(73,182,117,0.14)]",
-      lineAccentClass: "bg-[#49b675]",
-      surfaceClass: "rgba(73, 182, 117, 0.1)",
-      connectorColor: "#49b675",
-      connectorGlow: "rgba(73, 182, 117, 0.18)",
+        "border-t-[var(--green-scope)] before:bg-[var(--green-scope)] before:shadow-[0_0_0_3px_var(--green-muted)]",
+      lineHighlightClass: "bg-[var(--green-line)]",
+      lineAccentClass: "bg-[var(--green-scope)]",
+      surfaceClass: "var(--green-muted)",
+      connectorColor: "var(--green-scope)",
+      connectorGlow: "var(--green-muted)",
     };
   }
 
   if (normalizedCategory === "decision") {
     return {
-      restBorderClass: "border-[var(--thread-edge-low)]",
-      hoverBorderClass: "hover:border-[var(--thread-edge-low)]",
+      restBorderClass: "border-[var(--blue-edge)]",
+      hoverBorderClass: "hover:border-[var(--blue-edge)]",
       hoverShadowClass:
-        "hover:shadow-[0_0_0_1px_var(--thread-edge-low),0_24px_56px_-32px_var(--thread-shadow)]",
+        "hover:shadow-[0_0_0_1px_var(--blue-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       highlightedCardClass:
-        "border-[var(--thread-edge-low)] shadow-[0_0_0_1px_var(--thread-edge-low),0_24px_56px_-32px_var(--thread-shadow)]",
+        "border-[var(--blue-edge)] shadow-[0_0_0_1px_var(--blue-edge),0_20px_40px_-28px_var(--thread-shadow)]",
       connectorClass:
-        "border-t-[var(--thread-rail-low)] before:bg-[var(--thread-rail-low)] before:shadow-[0_0_0_4px_var(--thread-glow-low)]",
-      lineHighlightClass: "bg-[var(--thread-line-low)]",
-      lineAccentClass: "bg-[var(--thread-rail-low)]",
-      surfaceClass: "var(--thread-surface-low)",
-      connectorColor: "#69b3ff",
-      connectorGlow: "var(--thread-glow-low)",
+        "border-t-[var(--blue)] before:bg-[var(--blue)] before:shadow-[0_0_0_3px_var(--blue-muted)]",
+      lineHighlightClass: "bg-[var(--blue-line)]",
+      lineAccentClass: "bg-[var(--blue)]",
+      surfaceClass: "var(--blue-muted)",
+      connectorColor: "var(--blue)",
+      connectorGlow: "var(--blue-muted)",
     };
   }
 
   return {
-    hoverBorderClass: "hover:border-[var(--thread-edge-low)]",
+    hoverBorderClass: "hover:border-[var(--blue-edge)]",
     hoverShadowClass:
-      "hover:shadow-[0_0_0_1px_var(--thread-edge-low),0_24px_56px_-32px_var(--thread-shadow)]",
+      "hover:shadow-[0_0_0_1px_var(--blue-edge),0_20px_40px_-28px_var(--thread-shadow)]",
     highlightedCardClass:
-      "border-[var(--thread-edge-low)] shadow-[0_0_0_1px_var(--thread-edge-low),0_24px_56px_-32px_var(--thread-shadow)]",
+      "border-[var(--blue-edge)] shadow-[0_0_0_1px_var(--blue-edge),0_20px_40px_-28px_var(--thread-shadow)]",
     connectorClass:
-      "border-t-[var(--thread-rail-low)] before:bg-[var(--thread-rail-low)] before:shadow-[0_0_0_4px_var(--thread-glow-low)]",
-    lineHighlightClass: "bg-[var(--thread-line-low)]",
-    lineAccentClass: "bg-[var(--thread-rail-low)]",
+      "border-t-[var(--blue)] before:bg-[var(--blue)] before:shadow-[0_0_0_3px_var(--blue-muted)]",
+    lineHighlightClass: "bg-[var(--blue-line)]",
+    lineAccentClass: "bg-[var(--blue)]",
     surfaceClass: "var(--thread-bg)",
-    connectorColor: "#69b3ff",
-    connectorGlow: "var(--thread-glow-low)",
+    connectorColor: "var(--blue)",
+    connectorGlow: "var(--blue-muted)",
   };
 }
 
@@ -623,15 +632,15 @@ function timeAgo(timestamp: string): string {
 }
 
 const fileBadgeToneByExtension: Record<string, string> = {
-  ts: "bg-[rgba(49,120,198,0.2)] text-[#6db3f2]",
-  tsx: "bg-[rgba(49,120,198,0.2)] text-[#6db3f2]",
-  js: "bg-[rgba(240,200,57,0.15)] text-[#f0c839]",
-  jsx: "bg-[rgba(240,200,57,0.15)] text-[#f0c839]",
-  css: "bg-[rgba(86,156,214,0.15)] text-[#569cd6]",
-  json: "bg-[rgba(150,150,150,0.12)] text-[#999999]",
-  md: "bg-[rgba(91,156,245,0.12)] text-[#5b9cf5]",
-  sql: "bg-[rgba(255,140,56,0.15)] text-[#ff8c38]",
-  py: "bg-[rgba(79,139,201,0.15)] text-[#4f8bc9]",
+  ts: "bg-[var(--blue-muted)] text-[var(--blue)]",
+  tsx: "bg-[var(--blue-muted)] text-[var(--blue)]",
+  js: "bg-[var(--amber-muted)] text-[var(--amber)]",
+  jsx: "bg-[var(--amber-muted)] text-[var(--amber)]",
+  css: "bg-[var(--blue-muted)] text-[var(--blue)]",
+  json: "bg-[var(--bg-4)] text-[var(--text-3)]",
+  md: "bg-[var(--blue-muted)] text-[var(--blue)]",
+  sql: "bg-[var(--amber-muted)] text-[var(--amber)]",
+  py: "bg-[var(--blue-muted)] text-[var(--blue)]",
 };
 
 const changeToneByType = {
@@ -820,6 +829,186 @@ function cacheFileContent(
   }
 }
 
+function useFileContentState({
+  filePath,
+  change,
+  cacheRef,
+  enabled = true,
+}: {
+  filePath: string | null;
+  change: ChangedFileSummary | null;
+  cacheRef: React.MutableRefObject<Map<string, string>>;
+  enabled?: boolean;
+}) {
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [fileContentLoading, setFileContentLoading] = useState(false);
+  const [fileContentError, setFileContentError] = useState<string | null>(null);
+
+  const fileContentCacheKey = useMemo(() => {
+    if (!filePath) {
+      return null;
+    }
+
+    return getFileContentCacheKey(filePath, change);
+  }, [change, filePath]);
+
+  useEffect(() => {
+    if (!enabled) {
+      setFileContentLoading(false);
+      return;
+    }
+
+    if (!filePath || !fileContentCacheKey) {
+      setFileContent(null);
+      setFileContentError(null);
+      setFileContentLoading(false);
+      return;
+    }
+
+    const cached = cacheRef.current.get(fileContentCacheKey);
+    if (cached !== undefined) {
+      cacheRef.current.delete(fileContentCacheKey);
+      cacheRef.current.set(fileContentCacheKey, cached);
+      setFileContent(cached);
+      setFileContentError(null);
+      setFileContentLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setFileContent(null);
+    setFileContentError(null);
+    setFileContentLoading(true);
+
+    const loadFileContent = async () => {
+      try {
+        const content = await fetchFileContent(filePath, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        cacheFileContent(cacheRef.current, fileContentCacheKey, content);
+        setFileContent(content);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setFileContentError(
+          error instanceof Error ? error.message : "Failed to fetch file",
+        );
+        setFileContent(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setFileContentLoading(false);
+        }
+      }
+    };
+
+    void loadFileContent();
+
+    return () => {
+      controller.abort();
+    };
+  }, [cacheRef, enabled, fileContentCacheKey, filePath]);
+
+  return {
+    fileContent,
+    fileContentError,
+    fileContentLoading,
+  };
+}
+
+function useMultiFileContent(
+  sections: ReviewSection[],
+  cacheRef: React.MutableRefObject<Map<string, string>>,
+): Map<string, string> {
+  const [contents, setContents] = useState<Map<string, string>>(() => new Map());
+
+  const fileKeys = useMemo(() => {
+    const keys: Array<{ filePath: string; cacheKey: string }> = [];
+    for (const section of sections) {
+      const cacheKey = getFileContentCacheKey(section.filePath, section.change);
+      keys.push({ filePath: section.filePath, cacheKey });
+    }
+    return keys;
+  }, [sections]);
+
+  useEffect(() => {
+    if (fileKeys.length === 0) {
+      setContents(new Map());
+      return;
+    }
+
+    const controller = new AbortController();
+    const cache = cacheRef.current;
+
+    // Seed from cache synchronously
+    const initial = new Map<string, string>();
+    const pending: Array<{ filePath: string; cacheKey: string }> = [];
+
+    for (const { filePath, cacheKey } of fileKeys) {
+      const cached = cache.get(cacheKey);
+      if (cached !== undefined) {
+        // Touch LRU
+        cache.delete(cacheKey);
+        cache.set(cacheKey, cached);
+        initial.set(filePath, cached);
+      } else {
+        pending.push({ filePath, cacheKey });
+      }
+    }
+
+    if (initial.size > 0) {
+      setContents(initial);
+    }
+
+    if (pending.length === 0) return;
+
+    // Fetch uncached files
+    let cancelled = false;
+    const fetchAll = async () => {
+      const results = await Promise.allSettled(
+        pending.map(async ({ filePath, cacheKey }) => {
+          const content = await fetchFileContent(filePath, { signal: controller.signal });
+          if (!cancelled) {
+            cacheFileContent(cache, cacheKey, content);
+          }
+          return { filePath, content };
+        }),
+      );
+
+      if (cancelled) return;
+
+      setContents((prev) => {
+        const next = new Map(prev);
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            next.set(result.value.filePath, result.value.content);
+          }
+        }
+        return next;
+      });
+    };
+
+    void fetchAll();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [cacheRef, fileKeys]);
+
+  return contents;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 interface LineRange {
   start: number;
   end: number;
@@ -933,8 +1122,8 @@ const FileBriefHeader = memo(function FileBriefHeader({
       className={cx(
         "border-b px-6 py-5 font-[var(--font-sans)]",
         isOutdated
-          ? "border-[rgba(255,184,77,0.16)] bg-[linear-gradient(180deg,rgba(255,184,77,0.14),rgba(255,184,77,0.05))]"
-          : "border-[rgba(91,156,245,0.16)] bg-[linear-gradient(180deg,rgba(91,156,245,0.14),rgba(91,156,245,0.05))]"
+          ? "border-[var(--amber-edge)] bg-[var(--amber-muted)]"
+          : "border-[var(--blue-edge)] bg-[var(--blue-muted)]"
       )}
     >
       <div className="flex max-w-[78ch] flex-col gap-3.5">
@@ -943,14 +1132,14 @@ const FileBriefHeader = memo(function FileBriefHeader({
             className={cx(
               "inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]",
               isOutdated
-                ? "border-[rgba(255,184,77,0.24)] bg-[rgba(255,184,77,0.12)] text-[var(--amber)]"
-                : "border-[rgba(91,156,245,0.24)] bg-[rgba(91,156,245,0.12)] text-[var(--blue)]"
+                ? "border-[var(--amber-edge)] bg-[var(--amber-muted)] text-[var(--amber)]"
+                : "border-[var(--blue-edge)] bg-[var(--blue-muted)] text-[var(--blue)]"
             )}
           >
             File Brief
           </span>
           {isOutdated && (
-            <span className="inline-flex w-fit items-center rounded-full border border-[rgba(255,184,77,0.24)] bg-[rgba(255,184,77,0.12)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--amber)]">
+            <span className="inline-flex w-fit items-center rounded-full border border-[var(--amber-edge)] bg-[var(--amber-muted)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--amber)]">
               Outdated
             </span>
           )}
@@ -963,8 +1152,8 @@ const FileBriefHeader = memo(function FileBriefHeader({
             className={cx(
               "space-y-2 border-t pt-3",
               isOutdated
-                ? "border-[rgba(255,184,77,0.10)]"
-                : "border-[rgba(91,156,245,0.10)]"
+                ? "border-[var(--amber-muted)]"
+                : "border-[var(--blue-muted)]"
             )}
           >
             <RichTextBody
@@ -996,8 +1185,8 @@ const FileTreeItem = memo(function CanaryFileTreeItem({
   const isDimmed = !isActive && !node.hasReviewSignal;
   const briefBadgeClass =
     node.briefFreshness === "outdated"
-      ? "border-[rgba(255,184,77,0.24)] bg-[rgba(255,184,77,0.12)] text-[var(--amber)]"
-      : "border-[rgba(91,156,245,0.24)] bg-[rgba(91,156,245,0.12)] text-[var(--blue)]";
+      ? "border-[var(--amber-edge)] bg-[var(--amber-muted)] text-[var(--amber)]"
+      : "border-[var(--blue-edge)] bg-[var(--blue-muted)] text-[var(--blue)]";
 
   return (
     <>
@@ -1151,6 +1340,87 @@ function hasActiveLineAnchor(annotation: FileAnnotation): boolean {
   );
 }
 
+const SNIPPET_CONTEXT_PADDING = 3;
+
+const CodeSnippet = memo(function CodeSnippet({
+  filePath,
+  fileContent,
+  startLine,
+  endLine,
+  categoryColor,
+}: {
+  filePath: string;
+  fileContent: string | undefined;
+  startLine: number;
+  endLine: number;
+  categoryColor: string;
+}) {
+  const lines = useMemo(() => {
+    if (!fileContent) return null;
+    const allLines = fileContent.split("\n");
+    const first = Math.max(1, startLine - SNIPPET_CONTEXT_PADDING);
+    const last = Math.min(allLines.length, endLine + SNIPPET_CONTEXT_PADDING);
+    const result: Array<{ num: number; text: string; isAnnotated: boolean }> = [];
+    for (let i = first; i <= last; i++) {
+      result.push({
+        num: i,
+        text: allLines[i - 1] ?? "",
+        isAnnotated: i >= startLine && i <= endLine,
+      });
+    }
+    return result;
+  }, [fileContent, startLine, endLine]);
+
+  if (!lines) {
+    return (
+      <div className="code-snippet code-snippet-loading">
+        <div className="flex items-center gap-2 px-4 py-3 text-[11px] text-[var(--text-3)]">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--text-3)] border-t-transparent" />
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
+  const gutterWidth = String(lines[lines.length - 1]?.num ?? 1).length;
+
+  const lineLabel = startLine === endLine ? `:${startLine}` : `:${startLine}–${endLine}`;
+
+  return (
+    <div className="code-snippet">
+      <div className="code-snippet-file-label">
+        {filePath}{lineLabel}
+      </div>
+      <div className="code-snippet-lines">
+        {lines.map((line) => {
+          const { html } = highlightDiffLine(line.text, filePath, "diff-context");
+          return (
+            <div
+              key={line.num}
+              className={cx(
+                "code-snippet-line",
+                line.isAnnotated && "code-snippet-annotated",
+              )}
+              style={line.isAnnotated ? { "--snippet-accent": categoryColor } as React.CSSProperties : undefined}
+            >
+              <span
+                className="code-snippet-gutter"
+                style={{ minWidth: `${gutterWidth + 1}ch` }}
+              >
+                {line.num}
+              </span>
+              <span
+                className="syntax-line code-snippet-code"
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
 const ThreadCard = memo(function ThreadCard({
   annotation,
   highlighted,
@@ -1275,9 +1545,9 @@ const ThreadCard = memo(function ThreadCard({
         !isResolvedCollapsed && tone.hoverShadowClass,
         (!isResolved ? tone.restBorderClass : undefined) ?? (
           highlighted
-            ? "border-[var(--thread-highlight-border)] shadow-[0_0_0_1px_rgba(107,188,167,0.18),0_24px_56px_-32px_var(--thread-shadow)]"
+            ? "border-[var(--teal-border)] shadow-[0_0_0_1px_var(--teal-strong),0_24px_56px_-32px_var(--thread-shadow)]"
             : focusMode
-              ? "border-[var(--thread-highlight-border)] shadow-[0_0_0_1px_rgba(107,188,167,0.12),0_18px_40px_-28px_var(--thread-shadow)]"
+              ? "border-[var(--teal-border)] shadow-[0_0_0_1px_var(--teal-muted),0_18px_40px_-28px_var(--thread-shadow)]"
               : "border-[var(--thread-border)] shadow-[0_18px_40px_-28px_var(--thread-shadow)]"
         ),
         isResolvedCollapsed &&
@@ -1293,7 +1563,7 @@ const ThreadCard = memo(function ThreadCard({
         <>
           <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
             <div className="min-w-0 flex items-center gap-2">
-              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[rgba(61,214,140,0.14)] text-[#9ff0c3]">
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--green-muted)] text-[var(--green)]">
                 <svg
                   viewBox="0 0 16 16"
                   className="h-3.5 w-3.5"
@@ -1349,7 +1619,7 @@ const ThreadCard = memo(function ThreadCard({
           </div>
           {error && (
             <div className="border-t border-[var(--thread-border)] px-3.5 py-2">
-              <p className="m-0 text-[12px] leading-[1.5] text-[#ffb2b2]">
+              <p className="m-0 text-[12px] leading-[1.5] text-[var(--red)]">
                 {error}
               </p>
             </div>
@@ -1369,7 +1639,7 @@ const ThreadCard = memo(function ThreadCard({
                   <span />
                 )}
                 {isOutdated && (
-                  <span className="rounded-full border border-[rgba(255,184,77,0.24)] bg-[rgba(255,184,77,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--amber)]">
+                  <span className="rounded-full border border-[var(--amber-edge)] bg-[var(--amber-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--amber)]">
                     Outdated
                   </span>
                 )}
@@ -1549,7 +1819,7 @@ const ThreadCard = memo(function ThreadCard({
               </div>
 
               {error && (
-                <p className="m-0 text-[12px] leading-[1.5] text-[#ffb2b2]">
+                <p className="m-0 text-[12px] leading-[1.5] text-[var(--red)]">
                   {error}
                 </p>
               )}
@@ -1877,6 +2147,10 @@ const CodeView = memo(function CodeView({
   fileContentError,
   annotations,
   focusMode,
+  highlightedThreadId,
+  layout = "file",
+  autoScrollToFirstThread = true,
+  showThreadsPane = true,
   onReplyThread,
   onSetThreadStatus,
 }: {
@@ -1888,13 +2162,19 @@ const CodeView = memo(function CodeView({
   fileContentError: string | null;
   annotations: FileAnnotation[];
   focusMode: boolean;
+  highlightedThreadId?: string | null;
+  layout?: "file" | "embedded";
+  autoScrollToFirstThread?: boolean;
+  showThreadsPane?: boolean;
   onReplyThread: (threadId: string, body: string) => Promise<void>;
   onSetThreadStatus: (threadId: string, status: "open" | "resolved") => Promise<void>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [hoveredThread, setHoveredThread] = useState<string | null>(null);
   const pendingInitialFocusScrollFileRef = useRef<string | null>(null);
-  const activeThreadId = hoveredThread;
+  const embedded = layout === "embedded";
+  const lineFocusMode = focusMode && !embedded;
+  const activeThreadId = highlightedThreadId ?? hoveredThread;
   const hasLineAnnotations = useMemo(
     () => annotations.some((annotation) => hasActiveLineAnchor(annotation)),
     [annotations],
@@ -1968,8 +2248,9 @@ const CodeView = memo(function CodeView({
   }, [filePath]);
 
   useLayoutEffect(() => {
-    pendingInitialFocusScrollFileRef.current = focusMode ? filePath : null;
-  }, [filePath, focusMode]);
+    pendingInitialFocusScrollFileRef.current =
+      autoScrollToFirstThread && focusMode ? filePath : null;
+  }, [autoScrollToFirstThread, filePath, focusMode]);
 
   const handleHoverThread = useCallback((id: string | null) => {
     setHoveredThread(id);
@@ -2006,9 +2287,16 @@ const CodeView = memo(function CodeView({
       return;
     }
 
-    const target = container.querySelector<HTMLElement>(
-      `[data-thread-id="${firstThread.id}"]`,
-    );
+    const target = showThreadsPane
+      ? container.querySelector<HTMLElement>(`[data-thread-id="${firstThread.id}"]`)
+      : hasActiveLineAnchor(firstThread)
+        ? container.querySelector<HTMLElement>(
+            `[data-line="${firstThread.startLine}"][data-line-side="${firstThread.lineSide ?? "new"}"]`,
+          ) ??
+          container.querySelector<HTMLElement>(
+            `[data-line="${firstThread.startLine}"]`,
+          )
+        : container.querySelector<HTMLElement>("[data-line]");
     if (!target) {
       return;
     }
@@ -2023,7 +2311,7 @@ const CodeView = memo(function CodeView({
       behavior: "auto",
     });
     pendingInitialFocusScrollFileRef.current = null;
-  }, [annotations, filePath, positions]);
+  }, [annotations, autoScrollToFirstThread, filePath, positions, showThreadsPane]);
 
   if (patch) {
     return (
@@ -2040,6 +2328,9 @@ const CodeView = memo(function CodeView({
         highlightedLineRange={highlightedLineRange}
         highlightedThread={activeThreadId}
         focusMode={focusMode}
+        lineFocusMode={lineFocusMode}
+        layout={layout}
+        showThreadsPane={showThreadsPane}
         hasLineAnnotations={hasLineAnnotations}
         hasThreadAnnotations={hasThreadAnnotations}
         onHoverThread={handleHoverThread}
@@ -2053,18 +2344,26 @@ const CodeView = memo(function CodeView({
 
   return (
     <div
-      className="code-and-threads grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] overflow-auto max-[1200px]:grid-cols-[minmax(0,1fr)_300px] max-[960px]:grid-cols-1"
+      className={cx(
+        "code-and-threads",
+        embedded
+          ? "overflow-visible"
+          : "min-h-0 flex-1 overflow-auto",
+        showThreadsPane
+          ? "grid grid-cols-[minmax(0,1fr)_340px] max-[1200px]:grid-cols-[minmax(0,1fr)_300px] max-[960px]:grid-cols-1"
+          : "flex",
+      )}
       ref={containerRef}
     >
       <div
         className={cx(
           "flex flex-1 flex-col gap-4 p-8 transition-opacity duration-200",
-          focusMode && !hasThreadAnnotations && "opacity-[0.22]",
+          !embedded && lineFocusMode && !hasThreadAnnotations && "opacity-[0.22]",
         )}
       >
         {fileBrief && <FileBriefHeader brief={fileBrief} />}
         {fileContentError && (
-          <p className="m-0 rounded-[8px] border border-[rgba(239,90,90,0.2)] bg-[var(--red-muted)] px-3 py-2 text-[12px] text-[var(--red)]">
+          <p className="m-0 rounded-[8px] border border-[var(--red-edge)] bg-[var(--red-muted)] px-3 py-2 text-[12px] text-[var(--red)]">
             {fileContentError}
           </p>
         )}
@@ -2082,7 +2381,7 @@ const CodeView = memo(function CodeView({
             sourceContent={fileContent}
             annotations={annotations}
             annotatedLineCategories={annotatedLineCategories}
-            focusMode={focusMode}
+            focusMode={lineFocusMode}
             hasLineAnnotations={hasLineAnnotations}
             hasThreadAnnotations={hasThreadAnnotations}
             filterLineNumbers={null}
@@ -2091,16 +2390,18 @@ const CodeView = memo(function CodeView({
           />
         )}
       </div>
-      <ThreadsPanel
-        annotations={annotations}
-        highlightedThread={activeThreadId}
-        focusMode={focusMode}
-        onHoverThread={handleHoverThread}
-        onReplyThread={onReplyThread}
-        onSetThreadStatus={onSetThreadStatus}
-        positions={positions}
-        gutterHeight={gutterHeight}
-      />
+      {showThreadsPane && (
+        <ThreadsPanel
+          annotations={annotations}
+          highlightedThread={activeThreadId}
+          focusMode={focusMode}
+          onHoverThread={handleHoverThread}
+          onReplyThread={onReplyThread}
+          onSetThreadStatus={onSetThreadStatus}
+          positions={positions}
+          gutterHeight={gutterHeight}
+        />
+      )}
     </div>
   );
 });
@@ -2118,6 +2419,9 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
   highlightedLineRange,
   highlightedThread,
   focusMode,
+  lineFocusMode,
+  layout,
+  showThreadsPane,
   hasLineAnnotations,
   hasThreadAnnotations,
   onHoverThread,
@@ -2142,6 +2446,9 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
   } | null;
   highlightedThread: string | null;
   focusMode: boolean;
+  lineFocusMode: boolean;
+  layout: "file" | "embedded";
+  showThreadsPane: boolean;
   hasLineAnnotations: boolean;
   hasThreadAnnotations: boolean;
   onHoverThread: (id: string | null) => void;
@@ -2150,6 +2457,7 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
   positions: Map<string, { top: number; idealTop: number }>;
   gutterHeight: number;
 }) {
+  const embedded = layout === "embedded";
   const rawLines = patch.split("\n");
   const hunkHeaderRegex =
     /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/;
@@ -2331,7 +2639,7 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
           effectiveLine <= highlightedLineRange.end &&
           (!highlightedLineRange.side || highlightedLineRange.side === lineSide)
         : false;
-    const isDimmed = focusMode
+    const isDimmed = lineFocusMode
       ? hasThreadAnnotations
         ? hasLineAnnotations
           ? !hasAnnotation
@@ -2351,8 +2659,8 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
             hasAnnotation &&
               p.lineClass !== "diff-add" &&
             p.lineClass !== "diff-remove" &&
-            "bg-[var(--thread-highlight-soft)]",
-          isHighlighted && "bg-[var(--thread-highlight-strong)]",
+            "bg-[var(--teal-muted)]",
+          isHighlighted && "bg-[var(--teal-strong)]",
           isDimmed && !isHighlighted && "opacity-[0.22]",
         )}
       >
@@ -2419,7 +2727,7 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
           annotatedLineCategories={annotatedLineCategories}
           focusedLineRange={highlightedLineRange}
           filterLineNumbers={null}
-          focusMode={focusMode}
+          focusMode={lineFocusMode}
           hasLineAnnotations={hasLineAnnotations}
           hasThreadAnnotations={hasThreadAnnotations}
           lineStart={1}
@@ -2452,7 +2760,7 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
             annotatedLineCategories={annotatedLineCategories}
             focusedLineRange={highlightedLineRange}
             filterLineNumbers={null}
-            focusMode={focusMode}
+            focusMode={lineFocusMode}
             hasLineAnnotations={hasLineAnnotations}
             hasThreadAnnotations={hasThreadAnnotations}
             lineStart={section.start}
@@ -2499,7 +2807,7 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
             annotatedLineCategories={annotatedLineCategories}
             focusedLineRange={highlightedLineRange}
             filterLineNumbers={null}
-            focusMode={focusMode}
+            focusMode={lineFocusMode}
             hasLineAnnotations={hasLineAnnotations}
             hasThreadAnnotations={hasThreadAnnotations}
             lineStart={matchingSection.start}
@@ -2521,17 +2829,28 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
 
   return (
     <div
-      className="code-and-threads grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] overflow-auto max-[1200px]:grid-cols-[minmax(0,1fr)_300px] max-[960px]:grid-cols-1"
+      className={cx(
+        "code-and-threads",
+        embedded
+          ? "overflow-visible"
+          : "min-h-0 flex-1 overflow-auto",
+        showThreadsPane
+          ? "grid grid-cols-[minmax(0,1fr)_340px] max-[1200px]:grid-cols-[minmax(0,1fr)_300px] max-[960px]:grid-cols-1"
+          : "flex",
+      )}
       ref={containerRef}
     >
       <div
-        className="code-view flex-1 overflow-auto text-[12px] leading-[1.65]"
+        className={cx(
+          "code-view flex-1 text-[12px] leading-[1.65]",
+          embedded ? "overflow-visible" : "overflow-auto",
+        )}
         style={codeFontStyle}
       >
         <div className="flex flex-col">
           {fileBrief && <FileBriefHeader brief={fileBrief} />}
           {fileContentError && (
-            <p className="m-0 rounded-[8px] border border-[rgba(239,90,90,0.2)] bg-[var(--red-muted)] px-3 py-2 text-[12px] text-[var(--red)]">
+            <p className="m-0 rounded-[8px] border border-[var(--red-edge)] bg-[var(--red-muted)] px-3 py-2 text-[12px] text-[var(--red)]">
               {fileContentError}
             </p>
           )}
@@ -2543,16 +2862,18 @@ const DiffViewWithThreads = memo(function DiffViewWithThreads({
           {renderedDiffBlocks}
         </div>
       </div>
-      <ThreadsPanel
-        annotations={annotations}
-        highlightedThread={highlightedThread}
-        focusMode={focusMode}
-        onHoverThread={onHoverThread}
-        onReplyThread={onReplyThread}
-        onSetThreadStatus={onSetThreadStatus}
-        positions={positions}
-        gutterHeight={gutterHeight}
-      />
+      {showThreadsPane && (
+        <ThreadsPanel
+          annotations={annotations}
+          highlightedThread={highlightedThread}
+          focusMode={focusMode}
+          onHoverThread={onHoverThread}
+          onReplyThread={onReplyThread}
+          onSetThreadStatus={onSetThreadStatus}
+          positions={positions}
+          gutterHeight={gutterHeight}
+        />
+      )}
     </div>
   );
 });
@@ -2988,8 +3309,8 @@ const SourceContextView = memo(function SourceContextView({
               data-line-side="new"
               className={cx(
                 "code-line relative flex min-h-[21px] items-start px-4 transition-[opacity,background-color] duration-200 hover:bg-[rgba(255,255,255,0.02)]",
-                hasAnnotation && "bg-[var(--thread-highlight-soft)]",
-                isHighlighted && "bg-[var(--thread-highlight-strong)]",
+                hasAnnotation && "bg-[var(--teal-muted)]",
+                isHighlighted && "bg-[var(--teal-strong)]",
                 isDimmed && !isHighlighted && "opacity-[0.22]",
               )}
             >
@@ -3040,6 +3361,544 @@ const SourceContextView = memo(function SourceContextView({
           </button>
         </div>
       )}
+    </div>
+  );
+});
+
+const UnifiedReviewPane = memo(function UnifiedReviewPane({
+  sections,
+  activeFile,
+  requestedFilePath,
+  onRequestedFileHandled,
+  onSelectFile,
+  onSyncActiveFile,
+  onHoverThread,
+  onReplyThread,
+  onSetThreadStatus,
+}: {
+  sections: ReviewSection[];
+  activeFile: string | null;
+  requestedFilePath: string | null;
+  onRequestedFileHandled: () => void;
+  onSelectFile: (filePath: string) => void;
+  onSyncActiveFile: (filePath: string) => void;
+  onHoverThread: (threadId: string | null) => void;
+  onReplyThread: (threadId: string, body: string) => Promise<void>;
+  onSetThreadStatus: (threadId: string, status: "open" | "resolved") => Promise<void>;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const sectionRefs = useRef(new Map<string, HTMLElement>());
+  const scrollFrameRef = useRef<number | null>(null);
+  const summary = useMemo(() => {
+    let totalThreads = 0;
+    let openThreads = 0;
+    for (const section of sections) {
+      totalThreads += section.annotations.length;
+      openThreads += section.openThreads;
+    }
+    return { files: sections.length, totalThreads, openThreads };
+  }, [sections]);
+
+  const syncVisibleSection = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || sections.length === 0) {
+      return;
+    }
+
+    const containerTop = container.getBoundingClientRect().top;
+    const focusLine = containerTop + clamp(container.clientHeight * 0.25, 96, 220);
+    let bestFilePath: string | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const section of sections) {
+      const element = sectionRefs.current.get(section.filePath);
+      if (!element) {
+        continue;
+      }
+
+      const rect = element.getBoundingClientRect();
+      if (rect.bottom < focusLine - 24) {
+        continue;
+      }
+
+      const distance = Math.abs(rect.top - focusLine);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestFilePath = section.filePath;
+      }
+    }
+
+    if (!bestFilePath) {
+      bestFilePath = sections[sections.length - 1]?.filePath ?? null;
+    }
+
+    if (bestFilePath && bestFilePath !== activeFile) {
+      onSyncActiveFile(bestFilePath);
+    }
+  }, [activeFile, onSyncActiveFile, sections]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleScroll = () => {
+      if (scrollFrameRef.current !== null) {
+        return;
+      }
+
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        syncVisibleSection();
+      });
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+    handleScroll();
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, [syncVisibleSection]);
+
+  useLayoutEffect(() => {
+    if (!requestedFilePath) {
+      return;
+    }
+
+    const container = containerRef.current;
+    const section = sectionRefs.current.get(requestedFilePath);
+    if (!container || !section) {
+      onRequestedFileHandled();
+      return;
+    }
+
+    const nextTop = Math.max(0, section.offsetTop - 16);
+    container.scrollTo({
+      top: nextTop,
+      behavior: "smooth",
+    });
+    onRequestedFileHandled();
+  }, [onRequestedFileHandled, requestedFilePath]);
+
+  if (sections.length === 0) {
+    return (
+      <aside className="review-stream flex min-h-0 flex-col border-l border-[var(--border)] bg-[var(--bg-1)] max-[1180px]:border-l-0 max-[1180px]:border-t">
+        <div className="border-b border-[var(--border)] px-5 py-3">
+          <span className="text-[12px] font-semibold text-[var(--text-1)]">
+            Focus Review
+          </span>
+          <p className="mt-2 mb-0 text-[13px] leading-[1.6] text-[var(--text-3)]">
+            No review items yet.
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="review-stream flex min-h-0 flex-col border-l border-[var(--border)] bg-[var(--bg-1)] max-[1180px]:border-l-0 max-[1180px]:border-t">
+      <div className="border-b border-[var(--border)] bg-[var(--bg-2)] px-5 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] font-semibold text-[var(--text-1)]">
+              Focus Review
+            </span>
+            <span className="text-[12px] tabular-nums text-[var(--text-3)]">
+              <span className="font-medium text-[var(--text-2)]">{summary.openThreads}</span>
+              <span className="mx-px">/</span>
+              {summary.totalThreads} open
+            </span>
+          </div>
+          <span className="text-[12px] tabular-nums text-[var(--text-3)]">
+            {summary.files} {summary.files === 1 ? "file" : "files"}
+          </span>
+        </div>
+      </div>
+
+      <div
+        ref={containerRef}
+        className="review-stream-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      >
+        <div className="flex flex-col gap-4">
+          {sections.map((section) => {
+            const fileName = section.filePath.split("/").pop() ?? section.filePath;
+            const isActive = activeFile === section.filePath;
+
+            return (
+              <section
+                key={section.filePath}
+                ref={(node) => {
+                  if (node) {
+                    sectionRefs.current.set(section.filePath, node);
+                    return;
+                  }
+                  sectionRefs.current.delete(section.filePath);
+                }}
+                className={cx(
+                  "scroll-mt-4 rounded-[18px] border px-3 py-3 transition-[border-color,background-color,box-shadow] duration-200",
+                  isActive
+                    ? "border-[var(--teal-border)] bg-[var(--teal-muted)] shadow-[0_20px_48px_-34px_rgba(0,0,0,0.72)]"
+                    : "border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]",
+                )}
+              >
+                <div className="sticky top-0 z-[1] -mx-1 mb-3 rounded-[14px] border border-transparent bg-[var(--bg-3)] px-1 pb-2 pt-1 backdrop-blur">
+                  <button
+                    type="button"
+                    className={cx(
+                      "flex w-full items-start justify-between gap-3 rounded-[12px] border px-3 py-2 text-left transition-colors duration-150",
+                      isActive
+                        ? "border-[var(--teal-border)] bg-[var(--teal-muted)]"
+                        : "border-[var(--border)] bg-[rgba(255,255,255,0.02)] hover:border-[var(--border-hover)] hover:bg-[rgba(255,255,255,0.04)]",
+                    )}
+                    onClick={() => onSelectFile(section.filePath)}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={fileBadgeClass(fileName)}>
+                          {fileIcon(fileName, true)}
+                        </span>
+                        <span className="truncate text-[13px] font-semibold tracking-[-0.01em] text-[var(--text-1)]">
+                          {fileName}
+                        </span>
+                        {isActive && (
+                          <span className="rounded-full border border-[var(--teal-border)] bg-[var(--teal-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--teal-text)]">
+                            Current
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 mb-0 truncate font-[var(--font-mono)] text-[11px] text-[var(--text-3)]">
+                        {section.filePath}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                      {section.change && (
+                        <span
+                          className={cx(
+                            "font-[var(--font-mono)] text-[11px] font-semibold",
+                            changeToneByType[section.change.eventType],
+                          )}
+                        >
+                          {section.change.eventType === "add"
+                            ? "A"
+                            : section.change.eventType === "unlink"
+                              ? "D"
+                              : "M"}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.03)] px-2.5 py-0.5 text-[11px] text-[var(--text-2)]">
+                        <span className="font-medium text-[var(--text-1)]">{section.openThreads}</span>
+                        <span className="text-[var(--text-3)]">open</span>
+                        {section.totalThreads > section.openThreads && (
+                          <>
+                            <span className="text-[var(--text-3)]">&middot;</span>
+                            <span className="text-[var(--text-3)]">{section.totalThreads - section.openThreads} resolved</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </button>
+                </div>
+
+                {section.brief && (
+                  <div className="mb-3 rounded-[14px] border border-[var(--blue-edge)] bg-[var(--bg-3)] px-3.5 py-3">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-[var(--blue-edge)] bg-[var(--blue-muted)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--blue)]">
+                        File brief
+                      </span>
+                      {section.brief.freshness === "outdated" && (
+                        <span className="rounded-full border border-[var(--amber-edge)] bg-[var(--amber-muted)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--amber)]">
+                          Outdated
+                        </span>
+                      )}
+                    </div>
+                    <p className="m-0 text-[13px] leading-[1.65] text-[var(--text-1)]">
+                      {section.brief.summary}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-3">
+                  {section.annotations.map((annotation) => (
+                    <ThreadCard
+                      key={annotation.id}
+                      annotation={annotation}
+                      highlighted={false}
+                      focusMode
+                      onHover={(threadId) => {
+                        onHoverThread(threadId);
+                        if (threadId) {
+                          onSyncActiveFile(section.filePath);
+                        }
+                      }}
+                      onReply={onReplyThread}
+                      onSetStatus={onSetThreadStatus}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </aside>
+  );
+});
+
+const FocusReviewStream = memo(function FocusReviewStream({
+  sections,
+  activeFile,
+  requestedFilePath,
+  onRequestedFileHandled,
+  onSelectFile,
+  onSyncActiveFile,
+  onReplyThread,
+  onSetThreadStatus,
+  cacheRef,
+}: {
+  sections: ReviewSection[];
+  activeFile: string | null;
+  requestedFilePath: string | null;
+  onRequestedFileHandled: () => void;
+  onSelectFile: (filePath: string) => void;
+  onSyncActiveFile: (filePath: string) => void;
+  onReplyThread: (threadId: string, body: string) => Promise<void>;
+  onSetThreadStatus: (threadId: string, status: "open" | "resolved") => Promise<void>;
+  cacheRef: React.MutableRefObject<Map<string, string>>;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const sectionRefs = useRef(new Map<string, HTMLElement>());
+  const scrollFrameRef = useRef<number | null>(null);
+  const fileContents = useMultiFileContent(sections, cacheRef);
+
+  const summary = useMemo(() => {
+    let totalThreads = 0;
+    let openThreads = 0;
+    for (const s of sections) {
+      totalThreads += s.annotations.length;
+      openThreads += s.openThreads;
+    }
+    return { files: sections.length, totalThreads, openThreads };
+  }, [sections]);
+
+  // Scroll-sync: detect which file section is visible and sync sidebar
+  const syncVisibleSection = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || sections.length === 0) return;
+
+    const containerTop = container.getBoundingClientRect().top;
+    const focusLine = containerTop + clamp(container.clientHeight * 0.25, 96, 220);
+    let bestFilePath: string | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const section of sections) {
+      const el = sectionRefs.current.get(section.filePath);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom < focusLine - 24) continue;
+      const distance = Math.abs(rect.top - focusLine);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestFilePath = section.filePath;
+      }
+    }
+
+    if (!bestFilePath) {
+      bestFilePath = sections[sections.length - 1]?.filePath ?? null;
+    }
+
+    if (bestFilePath && bestFilePath !== activeFile) {
+      onSyncActiveFile(bestFilePath);
+    }
+  }, [activeFile, onSyncActiveFile, sections]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        syncVisibleSection();
+      });
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+    handleScroll();
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, [syncVisibleSection]);
+
+  // Scroll to requested file section
+  useLayoutEffect(() => {
+    if (!requestedFilePath) return;
+    const container = containerRef.current;
+    const section = sectionRefs.current.get(requestedFilePath);
+    if (!container || !section) {
+      onRequestedFileHandled();
+      return;
+    }
+    container.scrollTo({ top: Math.max(0, section.offsetTop - 16), behavior: "smooth" });
+    onRequestedFileHandled();
+  }, [onRequestedFileHandled, requestedFilePath]);
+
+  const noopHover = useCallback(() => {}, []);
+
+  if (sections.length === 0) {
+    return (
+      <div className="focus-stream focus-stream-empty">
+        <div className="mx-auto max-w-[820px] px-6 py-16 text-center">
+          <p className="m-0 text-[12px] font-semibold text-[var(--text-1)]">
+            Focus Review
+          </p>
+          <p className="mt-2 mb-0 text-[13px] leading-[1.6] text-[var(--text-3)]">
+            No review items yet. Browse the repository in the sidebar.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="focus-stream" ref={containerRef}>
+      {/* Summary header + TOC */}
+      <div className="focus-stream-header">
+        <div className="mx-auto max-w-[820px] px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-[12px] font-semibold text-[var(--text-1)]">
+                Focus Review
+              </span>
+              <span className="text-[12px] tabular-nums text-[var(--text-3)]">
+                <span className="font-medium text-[var(--text-2)]">{summary.openThreads}</span>
+                <span className="mx-px">/</span>
+                {summary.totalThreads} open
+              </span>
+            </div>
+            <span className="text-[12px] tabular-nums text-[var(--text-3)]">
+              {summary.files} {summary.files === 1 ? "file" : "files"}
+            </span>
+          </div>
+          <div className="focus-stream-toc">
+            {sections.map((section) => {
+              const name = section.filePath.split("/").pop() ?? section.filePath;
+              const isCurrent = activeFile === section.filePath;
+              return (
+                <button
+                  key={section.filePath}
+                  type="button"
+                  className={cx(
+                    "focus-stream-toc-chip",
+                    isCurrent && "focus-stream-toc-chip-active",
+                  )}
+                  onClick={() => {
+                    const el = sectionRefs.current.get(section.filePath);
+                    const container = containerRef.current;
+                    if (el && container) {
+                      container.scrollTo({ top: Math.max(0, el.offsetTop - 16), behavior: "smooth" });
+                    }
+                    onSelectFile(section.filePath);
+                  }}
+                >
+                  <span className={fileBadgeClass(name)} style={{ fontSize: 9, padding: "1px 4px" }}>
+                    {fileIcon(name, true)}
+                  </span>
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-[820px] px-6 pb-16">
+        {sections.map((section) => {
+          const lineAnchored = section.annotations.filter((a) => hasActiveLineAnchor(a));
+          const fileLevel = section.annotations.filter((a) => !hasActiveLineAnchor(a));
+
+          return (
+            <div
+              key={section.filePath}
+              ref={(node) => {
+                if (node) {
+                  sectionRefs.current.set(section.filePath, node);
+                } else {
+                  sectionRefs.current.delete(section.filePath);
+                }
+              }}
+              className="focus-stream-section"
+            >
+              {/* File brief */}
+              {section.brief && (
+                <div className="mb-4 rounded-[12px] border border-[var(--blue-edge)] bg-[var(--bg-3)] px-4 py-3">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span className="rounded-full border border-[var(--blue-edge)] bg-[var(--blue-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--blue)]">
+                      Brief
+                    </span>
+                    {section.brief.freshness === "outdated" && (
+                      <span className="rounded-full border border-[var(--amber-edge)] bg-[var(--amber-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--amber)]">
+                        Outdated
+                      </span>
+                    )}
+                  </div>
+                  <p className="m-0 text-[13px] leading-[1.65] text-[var(--text-2)]">
+                    {section.brief.summary}
+                  </p>
+                </div>
+              )}
+
+              {/* Line-anchored threads: code snippet + thread card as unified block */}
+              {lineAnchored.map((annotation) => (
+                <div key={annotation.id} className="review-item">
+                  <CodeSnippet
+                    filePath={section.filePath}
+                    fileContent={fileContents.get(section.filePath)}
+                    startLine={annotation.startLine!}
+                    endLine={annotation.endLine!}
+                    categoryColor={threadTypeColor(annotation.category)}
+                  />
+                  <ThreadCard
+                    annotation={annotation}
+                    highlighted={false}
+                    focusMode
+                    onHover={noopHover}
+                    onReply={onReplyThread}
+                    onSetStatus={onSetThreadStatus}
+                  />
+                </div>
+              ))}
+
+              {/* File-level threads (no code snippet) */}
+              {fileLevel.map((annotation) => (
+                <div key={annotation.id} className="review-item review-item-standalone">
+                  <ThreadCard
+                    annotation={annotation}
+                    highlighted={false}
+                    focusMode
+                    onHover={noopHover}
+                    onReply={onReplyThread}
+                    onSetStatus={onSetThreadStatus}
+                  />
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 });
@@ -3127,6 +3986,8 @@ export function App() {
     () => initialWorkspaceState?.sidebarTab ?? "files",
   );
   const [focusMode, setFocusMode] = useState(true);
+  const [focusReviewTargetFile, setFocusReviewTargetFile] = useState<string | null>(null);
+  const [focusReviewHoveredThreadId, setFocusReviewHoveredThreadId] = useState<string | null>(null);
   const [showResolvedThreads, setShowResolvedThreads] = useState(true);
   const [hasPersistedWorkspaceState, setHasPersistedWorkspaceState] = useState(
     () => initialWorkspaceState !== null,
@@ -3340,6 +4201,10 @@ export function App() {
     setActiveTab(filePath);
   }, []);
 
+  const syncFocusReviewFile = useCallback((filePath: string) => {
+    setActiveTab((current) => (current === filePath ? current : filePath));
+  }, []);
+
   const handleReplyThread = useCallback(
     async (threadId: string, body: string) => {
       await replyToThread(threadId, body);
@@ -3459,6 +4324,14 @@ export function App() {
     setActiveTab(preferredFile);
   }, [activeTab, openTabs.length, preferredFile]);
 
+  useEffect(() => {
+    if (focusMode || !activeTab) {
+      return;
+    }
+
+    setOpenTabs((prev) => (prev.includes(activeTab) ? prev : [...prev, activeTab]));
+  }, [activeTab, focusMode]);
+
   const stats = useMemo(() => {
     if (!overview) {
       return {
@@ -3477,10 +4350,6 @@ export function App() {
       threads: openThreads,
     };
   }, [overview]);
-
-  const [activeFileContent, setActiveFileContent] = useState<string | null>(null);
-  const [activeFileContentLoading, setActiveFileContentLoading] = useState(false);
-  const [activeFileContentError, setActiveFileContentError] = useState<string | null>(null);
 
   const changedFilesByPath = useMemo(() => {
     const files = new Map<string, ChangedFileSummary>();
@@ -3503,6 +4372,123 @@ export function App() {
     [overview?.threads],
   );
 
+  const visibleAnnotationsByFile = useMemo(() => {
+    const visible = new Map<string, FileAnnotation[]>();
+
+    for (const [filePath, annotations] of annotationsByFile) {
+      const nextAnnotations = showResolvedThreads
+        ? annotations
+        : annotations.filter((annotation) => annotation.status !== "resolved");
+
+      if (nextAnnotations.length > 0) {
+        visible.set(filePath, nextAnnotations);
+      }
+    }
+
+    return visible;
+  }, [annotationsByFile, showResolvedThreads]);
+
+  const reviewSections = useMemo(() => {
+    const pathOrder = new Map(
+      allKnownPaths.map((filePath, index) => [filePath, index] as const),
+    );
+
+    return [...visibleAnnotationsByFile.entries()]
+      .map(([filePath, annotations]) => {
+        const openThreads = annotations.filter(
+          (annotation) => annotation.status !== "resolved",
+        ).length;
+        const change = changedFilesByPath.get(filePath) ?? null;
+        const brief = fileBriefsByPath.get(filePath) ?? null;
+
+        return {
+          filePath,
+          annotations,
+          brief,
+          change,
+          totalThreads: annotations.length,
+          openThreads,
+        } satisfies ReviewSection;
+      })
+      .sort((left, right) => {
+        const score = (section: ReviewSection) =>
+          section.openThreads * 100 +
+          section.totalThreads * 10 +
+          (section.change ? 3 : 0) +
+          (section.brief ? 1 : 0);
+
+        return (
+          score(right) - score(left) ||
+          (pathOrder.get(left.filePath) ?? Number.MAX_SAFE_INTEGER) -
+            (pathOrder.get(right.filePath) ?? Number.MAX_SAFE_INTEGER) ||
+          left.filePath.localeCompare(right.filePath)
+        );
+      });
+  }, [allKnownPaths, changedFilesByPath, fileBriefsByPath, visibleAnnotationsByFile]);
+  const reviewSectionFilePaths = useMemo(
+    () => new Set(reviewSections.map((section) => section.filePath)),
+    [reviewSections],
+  );
+
+  useEffect(() => {
+    if (!focusMode) {
+      setFocusReviewHoveredThreadId(null);
+      setFocusReviewTargetFile(null);
+      return;
+    }
+
+    const firstReviewFile = reviewSections[0]?.filePath ?? null;
+    if (!firstReviewFile) {
+      return;
+    }
+
+    const isReviewFile = reviewSections.some(
+      (section) => section.filePath === activeTab,
+    );
+
+    if (!activeTab || !isReviewFile) {
+      setActiveTab(firstReviewFile);
+    }
+  }, [activeTab, focusMode, reviewSections]);
+
+  const handleSelectFile = useCallback(
+    (filePath: string) => {
+      const isReviewFile = reviewSectionFilePaths.has(filePath);
+
+      openFile(filePath);
+
+      if (!focusMode) {
+        return;
+      }
+
+      if (isReviewFile) {
+        setFocusReviewTargetFile(filePath);
+        return;
+      }
+
+      setFocusMode(false);
+    },
+    [focusMode, openFile, reviewSectionFilePaths],
+  );
+
+  const handleFocusModeToggle = useCallback(() => {
+    if (focusMode) {
+      setFocusMode(false);
+      return;
+    }
+
+    const nextReviewTarget =
+      (activeTab && reviewSectionFilePaths.has(activeTab) ? activeTab : null) ??
+      reviewSections[0]?.filePath ??
+      null;
+
+    if (nextReviewTarget) {
+      setFocusReviewTargetFile(nextReviewTarget);
+    }
+
+    setFocusMode(true);
+  }, [activeTab, focusMode, reviewSectionFilePaths, reviewSections]);
+
   const activeFileChange = useMemo(() => {
     if (!activeTab) {
       return null;
@@ -3511,75 +4497,13 @@ export function App() {
     return changedFilesByPath.get(activeTab) ?? null;
   }, [activeTab, changedFilesByPath]);
 
-  const activeFileContentCacheKey = useMemo(() => {
-    if (!activeTab) {
-      return null;
-    }
-
-    return getFileContentCacheKey(activeTab, activeFileChange);
-  }, [activeFileChange, activeTab]);
-
-  useEffect(() => {
-    if (!activeTab || !activeFileContentCacheKey) {
-      setActiveFileContent(null);
-      setActiveFileContentError(null);
-      setActiveFileContentLoading(false);
-      return;
-    }
-
-    const cached = activeFileContentCacheRef.current.get(activeFileContentCacheKey);
-    if (cached !== undefined) {
-      activeFileContentCacheRef.current.delete(activeFileContentCacheKey);
-      activeFileContentCacheRef.current.set(activeFileContentCacheKey, cached);
-      setActiveFileContent(cached);
-      setActiveFileContentError(null);
-      setActiveFileContentLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    setActiveFileContent(null);
-    setActiveFileContentError(null);
-    setActiveFileContentLoading(true);
-
-    const loadFileContent = async () => {
-      try {
-        const content = await fetchFileContent(activeTab, {
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        cacheFileContent(
-          activeFileContentCacheRef.current,
-          activeFileContentCacheKey,
-          content,
-        );
-        setActiveFileContent(content);
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setActiveFileContentError(
-          error instanceof Error ? error.message : "Failed to fetch file",
-        );
-        setActiveFileContent(null);
-      } finally {
-        if (!controller.signal.aborted) {
-          setActiveFileContentLoading(false);
-        }
-      }
-    };
-
-    void loadFileContent();
-
-    return () => {
-      controller.abort();
-    };
-  }, [activeFileContentCacheKey, activeTab]);
+  const { fileContent: activeFileContent, fileContentLoading: activeFileContentLoading, fileContentError: activeFileContentError } =
+    useFileContentState({
+      filePath: activeTab,
+      change: activeFileChange,
+      cacheRef: activeFileContentCacheRef,
+      enabled: activeTab !== null,
+    });
 
   const activeFilePatch = useMemo(() => {
     return activeFileChange?.patch ?? null;
@@ -3606,7 +4530,11 @@ export function App() {
     return fileBriefsByPath.get(activeTab) ?? null;
   }, [activeTab, fileBriefsByPath]);
 
+  const activeVisibleThreadCount = showResolvedThreads
+    ? activeFileAnnotations.length
+    : visibleFileAnnotations.length;
   const isSearching = deferredSearchText.trim().length > 0;
+  const shouldShowFocusReview = focusMode && !isSearching;
 
   return (
     <div className="grid h-full overflow-hidden [grid-template-rows:44px_minmax(0,1fr)_26px]">
@@ -3615,9 +4543,17 @@ export function App() {
         style={dragRegionStyle}
       >
         <div className="flex items-center gap-3">
-          <span className="text-[13px] font-semibold tracking-[-0.01em] text-[var(--text-2)]">
-            canary
-          </span>
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded-[6px] bg-[var(--bg-3)] text-[13px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
+              aria-hidden="true"
+            >
+              🐤
+            </span>
+            <span className="text-[13px] font-semibold tracking-[-0.01em] text-[var(--text-2)]">
+              canary
+            </span>
+          </div>
           {overview?.session && (
             <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-3)]">
               <StatusDot status={overview.session.status} />
@@ -3668,17 +4604,17 @@ export function App() {
             className={cx(
               "inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1 pl-1.5 text-[var(--text-2)] transition-colors duration-150",
               focusMode
-                ? "border-[var(--thread-highlight-border)] bg-[rgba(107,188,167,0.10)] text-[var(--thread-highlight-text)]"
+                ? "border-[var(--teal-border)] bg-[var(--teal-muted)] text-[var(--teal-text)]"
                 : "border-[var(--border)] bg-[var(--bg-2)] hover:border-[var(--border-active)] hover:text-[var(--text-1)]",
             )}
             type="button"
             aria-pressed={focusMode}
-            onClick={() => setFocusMode((current) => !current)}
+            onClick={handleFocusModeToggle}
           >
             <span
               className={cx(
                 "relative h-4 w-7 rounded-full shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors duration-150",
-                focusMode ? "bg-[rgba(107,188,167,0.18)]" : "bg-[var(--bg-4)]",
+                focusMode ? "bg-[var(--teal-strong)]" : "bg-[var(--bg-4)]",
               )}
               aria-hidden="true"
             >
@@ -3686,7 +4622,7 @@ export function App() {
                 className={cx(
                   "absolute top-0.5 left-0.5 h-3 w-3 rounded-full transition-[transform,background-color] duration-150",
                   focusMode
-                    ? "translate-x-3 bg-[var(--thread-highlight-solid)]"
+                    ? "translate-x-3 bg-[var(--teal)]"
                     : "bg-[var(--text-3)]",
                 )}
               />
@@ -3717,7 +4653,7 @@ export function App() {
       </header>
 
       {error && (
-        <div className="border-b border-[rgba(239,90,90,0.2)] bg-[var(--red-muted)] px-3.5 py-1.5 text-[12px] text-[var(--red)]">
+        <div className="border-b border-[var(--red-edge)] bg-[var(--red-muted)] px-3.5 py-1.5 text-[12px] text-[var(--red)]">
           {error}
         </div>
       )}
@@ -3784,7 +4720,7 @@ export function App() {
                     rows={visibleFileTreeRows}
                     activeFile={activeTab}
                     onToggle={toggleDir}
-                    onSelect={openFile}
+                    onSelect={handleSelectFile}
                   />
                 )}
               </div>
@@ -3798,11 +4734,11 @@ export function App() {
           {isSearching && searchResults.length > 0 ? (
             <SearchResultsList
               results={searchResults}
-              onSelectFile={openFile}
+              onSelectFile={handleSelectFile}
             />
           ) : (
             <>
-              {openTabs.length > 0 && (
+              {!shouldShowFocusReview && openTabs.length > 0 && (
                 <div className="tab-bar flex h-[36px] shrink-0 overflow-x-auto overflow-y-hidden border-b border-[var(--border)] bg-[var(--bg-1)]">
                   {openTabs.map((tab) => {
                     const name = tab.split("/").pop() ?? tab;
@@ -3816,7 +4752,7 @@ export function App() {
                             ? "border-b-2 border-b-[var(--accent)] bg-[var(--bg-2)] text-[var(--text-1)]"
                             : "text-[var(--text-3)] hover:bg-[var(--bg-2)] hover:text-[var(--text-2)]",
                         )}
-                        onClick={() => setActiveTab(tab)}
+                        onClick={() => openFile(tab)}
                       >
                         <span className={fileBadgeClass(name)}>
                           {fileIcon(name, true)}
@@ -3860,12 +4796,26 @@ export function App() {
                 </div>
               )}
 
-              {activeTab ? (
+              {shouldShowFocusReview ? (
+                <FocusReviewStream
+                  sections={reviewSections}
+                  activeFile={activeTab}
+                  requestedFilePath={focusReviewTargetFile}
+                  onRequestedFileHandled={() => setFocusReviewTargetFile(null)}
+                  onSelectFile={handleSelectFile}
+                  onSyncActiveFile={syncFocusReviewFile}
+                  onReplyThread={handleReplyThread}
+                  onSetThreadStatus={handleSetThreadStatus}
+                  cacheRef={activeFileContentCacheRef}
+                />
+              ) : activeTab ? (
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg-2)] px-4 py-1.5">
-                    <span className="truncate whitespace-nowrap font-[var(--font-mono)] text-[12px] text-[var(--text-3)]">
-                      {activeTab}
-                    </span>
+                    <div className="min-w-0">
+                      <span className="truncate whitespace-nowrap font-[var(--font-mono)] text-[12px] text-[var(--text-3)]">
+                        {activeTab}
+                      </span>
+                    </div>
                     <div className="flex shrink-0 items-center gap-2.5">
                       {activeFileChange && (
                         <span className="flex gap-1.5 font-[var(--font-mono)] text-[11px]">
@@ -3879,14 +4829,8 @@ export function App() {
                       )}
                       {activeFileAnnotations.length > 0 && (
                         <span className="rounded-[4px] bg-[var(--accent-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent-text)]">
-                          {(showResolvedThreads
-                            ? activeFileAnnotations.length
-                            : visibleFileAnnotations.length)} thread
-                          {(showResolvedThreads
-                            ? activeFileAnnotations.length
-                            : visibleFileAnnotations.length) !== 1
-                            ? "s"
-                            : ""}
+                          {activeVisibleThreadCount} thread
+                          {activeVisibleThreadCount !== 1 ? "s" : ""}
                           {showResolvedThreads ? "" : " open"}
                         </span>
                       )}
@@ -3897,7 +4841,7 @@ export function App() {
                           onChange={(event) =>
                             setShowResolvedThreads(event.target.checked)
                           }
-                          style={{ accentColor: "var(--thread-highlight-solid)" }}
+                          style={{ accentColor: "var(--teal)" }}
                           className="h-3.5 w-3.5 cursor-pointer"
                         />
                         Show resolved
