@@ -27,7 +27,23 @@ skills/              canonical agent skill bundle
 
 Project state lives under `~/.canary/projects/<project-hash>/canary.db`.
 
-## Development
+## Install
+
+```bash
+brew install mattzh72/canary/canary
+```
+
+This installs the `canary` and `canaryctl` commands.
+
+To set up the agent skill, run one of:
+
+```bash
+canaryctl skill setup --codex
+canaryctl skill setup --claude-code
+```
+
+<details>
+<summary>Development (from source)</summary>
 
 ```bash
 corepack enable
@@ -35,43 +51,26 @@ pnpm install
 pnpm build
 ```
 
-The current rewrite pass is focused on the shared SQLite model, actor-backed authorship, and the separation between the monitor, wrapped agent sessions, and `canaryctl`.
-
-## Local Install
-
-To install the local `canary` and `canaryctl` commands plus the Canary Codex skill from a source checkout, run:
+To symlink local builds into your PATH:
 
 ```bash
 pnpm install:local
 ```
 
-This script:
+This links `canary` and `canaryctl` into `~/.local/bin` and installs the Canary skill into `$CODEX_HOME/skills/canary`.
 
-- builds the workspace
-- links `canary` and `canaryctl` into `~/.local/bin` by default
-- links the Canary skill into `$CODEX_HOME/skills/canary` or `~/.codex/skills/canary`
+</details>
 
-Overrides:
+<details>
+<summary>Releasing a new version</summary>
 
-- set `CANARY_BIN_DIR` to install the commands into a different bin directory
-- set `CODEX_HOME` to install the skill into a different Codex home
-
-After installation:
-
-- ensure your bin directory is on `PATH`
-- restart Codex so it picks up the new skill
-
-To install just the canonical Canary skill through `canaryctl`, run one of:
+Push a tag and the GitHub Actions workflow handles the rest:
 
 ```bash
-canaryctl skill setup --codex
-canaryctl skill setup --claude-code
+git tag v0.x.0
+git push origin v0.x.0
 ```
 
-Verification:
+This automatically creates a GitHub release and updates the Homebrew formula with the new version and sha256.
 
-```bash
-canary serve --no-open
-canary codex --version
-canaryctl thread list --json
-```
+</details>
