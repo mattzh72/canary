@@ -1,8 +1,8 @@
 import path from "node:path";
 import chokidar from "chokidar";
 import { createTwoFilesPatch } from "diff";
-import { appendEvent, reconcileArtifactsForFileChange } from "canary-core";
-import type { CanaryConnection } from "canary-core";
+import { appendEvent, reconcileArtifactsForFileChange } from "@canaryctl/core";
+import type { CanaryConnection } from "@canaryctl/core";
 import { readTextFile, snapshotProjectFiles } from "./project-snapshot.js";
 
 interface StartFileWatcherParams {

@@ -4,7 +4,7 @@ import type {
   ThreadMessageRecord,
   ThreadRecord,
   ThreadStatus
-} from "canary-core";
+} from "@canaryctl/core";
 
 interface RequestOptions {
   signal?: AbortSignal;

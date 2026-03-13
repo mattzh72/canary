@@ -1,4 +1,4 @@
-import { upsertFileBrief } from "canary-core";
+import { upsertFileBrief } from "@canaryctl/core";
 import { printJson, printRecord } from "../output/render.js";
 import { withConnection } from "./context.js";
 import { normalizeFilePath } from "./target.js";

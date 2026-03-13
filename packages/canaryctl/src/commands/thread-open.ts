@@ -1,5 +1,5 @@
-import { createThread } from "canary-core";
-import type { ThreadType } from "canary-core";
+import { createThread } from "@canaryctl/core";
+import type { ThreadType } from "@canaryctl/core";
 import { printJson, printRecord } from "../output/render.js";
 import { withConnection } from "./context.js";
 import { createThreadAnchor, normalizeFilePath } from "./target.js";

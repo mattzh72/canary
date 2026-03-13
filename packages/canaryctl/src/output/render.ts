@@ -1,4 +1,4 @@
-import type { SearchResult } from "canary-core";
+import type { SearchResult } from "@canaryctl/core";
 
 export function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);

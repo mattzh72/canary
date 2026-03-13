@@ -9,8 +9,8 @@ import {
   resolveCallerIdentity,
   searchProject,
   updateThreadStatus
-} from "canary-core";
-import type { CanaryConnection } from "canary-core";
+} from "@canaryctl/core";
+import type { CanaryConnection } from "@canaryctl/core";
 import { listProjectFiles } from "../capture/project-snapshot.js";
 
 const MAX_FILE_SIZE = 512 * 1024;

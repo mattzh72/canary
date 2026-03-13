@@ -1,5 +1,5 @@
-import { listFileBriefs } from "canary-core";
-import type { ArtifactFreshness, FileBriefRecord } from "canary-core";
+import { listFileBriefs } from "@canaryctl/core";
+import type { ArtifactFreshness, FileBriefRecord } from "@canaryctl/core";
 import { printJson } from "../output/render.js";
 import { withConnection } from "./context.js";
 import { normalizeProjectPath } from "./target.js";

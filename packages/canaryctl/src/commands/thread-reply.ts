@@ -1,4 +1,4 @@
-import { addThreadMessage } from "canary-core";
+import { addThreadMessage } from "@canaryctl/core";
 import { printJson, printRecord } from "../output/render.js";
 import { withConnection } from "./context.js";
 

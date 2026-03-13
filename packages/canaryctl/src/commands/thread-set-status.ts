@@ -1,4 +1,4 @@
-import { updateThreadStatus } from "canary-core";
+import { updateThreadStatus } from "@canaryctl/core";
 import { printJson, printRecord } from "../output/render.js";
 import { withConnection } from "./context.js";
 

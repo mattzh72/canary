@@ -1,5 +1,5 @@
 {
-  "name": "canary-core",
+  "name": "@canaryctl/core",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",

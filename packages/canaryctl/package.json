@@ -1,5 +1,5 @@
 {
-  "name": "canaryctl",
+  "name": "@canaryctl/cli",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/cli/index.js",
@@ -18,7 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "canary-core": "workspace:*",
+    "@canaryctl/core": "workspace:*",
     "commander": "^13.1.0"
   }
 }

@@ -9,7 +9,7 @@ import {
   openConnection,
   reconcileArtifactsForFileChange,
   upsertFileBrief
-} from "canary-core";
+} from "@canaryctl/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runBriefList } from "./brief-list.js";
 import { runTodoList } from "./todo-list.js";

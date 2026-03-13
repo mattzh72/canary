@@ -1,5 +1,5 @@
 {
-  "name": "canary",
+  "name": "@canaryctl/monitor",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/cli/index.js",
@@ -21,8 +21,8 @@
   },
   "dependencies": {
     "@types/prismjs": "^1.26.6",
-    "canary-core": "workspace:*",
-    "canary-observers": "workspace:*",
+    "@canaryctl/core": "workspace:*",
+    "@canaryctl/observers": "workspace:*",
     "chokidar": "^4.0.3",
     "diff": "^8.0.2",
     "express": "^5.1.0",
