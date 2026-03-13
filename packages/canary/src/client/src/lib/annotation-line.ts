@@ -1,4 +1,4 @@
-import type { LineSide } from "canary-core";
+import type { LineSide } from "@canaryctl/core";
 
 export function resolveAnnotationCategoriesForLine(
   annotatedLineCategories: Map<string, string[]>,

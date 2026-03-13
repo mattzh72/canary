@@ -1,4 +1,4 @@
-import type { AgentKind } from "canary-core";
+import type { AgentKind } from "@canaryctl/core";
 
 export interface AgentDefinition {
   kind: AgentKind;

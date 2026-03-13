@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { getAgentDefinition } from "canary-observers";
-import type { AgentKind } from "canary-core";
+import { getAgentDefinition } from "@canaryctl/observers";
+import type { AgentKind } from "@canaryctl/core";
 
 export interface AgentRunResult {
   exitCode: number;

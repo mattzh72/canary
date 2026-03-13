@@ -6,8 +6,8 @@ import {
   openConnection,
   resolveProjectRoot,
   startAgentSession
-} from "canary-core";
-import type { AgentKind, SessionStatus } from "canary-core";
+} from "@canaryctl/core";
+import type { AgentKind, SessionStatus } from "@canaryctl/core";
 import { startFileWatcher } from "../capture/file-watcher.js";
 import { runAgentProcess } from "../runtime/agent-process.js";
 import { openBrowser } from "../runtime/open-browser.js";

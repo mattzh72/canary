@@ -30,7 +30,7 @@ Project state lives under `~/.canary/projects/<project-hash>/canary.db`.
 ## Install
 
 ```bash
-npm install -g canaryctl
+npm install -g @canaryctl/cli
 ```
 
 To set up the agent skill:

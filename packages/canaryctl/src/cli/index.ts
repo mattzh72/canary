@@ -2,7 +2,7 @@
 
 import process from "node:process";
 import { Command } from "commander";
-import type { ArtifactFreshness, ThreadType } from "canary-core";
+import type { ArtifactFreshness, ThreadType } from "@canaryctl/core";
 import { runBriefList } from "../commands/brief-list.js";
 import { runExplainFile } from "../commands/explain-file.js";
 import { runSkillSetup } from "../commands/skill-setup.js";

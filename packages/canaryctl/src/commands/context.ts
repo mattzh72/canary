@@ -1,4 +1,4 @@
-import { applyMigrations, openConnection, resolveCallerIdentity, resolveProjectRoot } from "canary-core";
+import { applyMigrations, openConnection, resolveCallerIdentity, resolveProjectRoot } from "@canaryctl/core";
 
 export async function withConnection<T>(
   cwd: string,

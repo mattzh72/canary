@@ -1,5 +1,5 @@
-import { listTodos } from "canary-core";
-import type { TodoRecord } from "canary-core";
+import { listTodos } from "@canaryctl/core";
+import type { TodoRecord } from "@canaryctl/core";
 import { printJson } from "../output/render.js";
 import { withConnection } from "./context.js";
 import { normalizeProjectPath } from "./target.js";

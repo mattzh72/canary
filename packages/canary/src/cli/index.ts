@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { isSupportedAgent } from "canary-observers";
+import { isSupportedAgent } from "@canaryctl/observers";
 import { runAgentWrapper, runServe } from "../app/run-canary.js";
 
 interface ParsedArgs {

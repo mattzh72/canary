@@ -1,10 +1,10 @@
-import { listThreads } from "canary-core";
+import { listThreads } from "@canaryctl/core";
 import type {
   ArtifactFreshness,
   ThreadRecord,
   ThreadStatus,
   ThreadType
-} from "canary-core";
+} from "@canaryctl/core";
 import { printJson } from "../output/render.js";
 import { withConnection } from "./context.js";
 import { normalizeProjectPath } from "./target.js";

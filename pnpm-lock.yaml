@@ -41,15 +41,15 @@ importers:
 
   packages/canary:
     dependencies:
+      '@canaryctl/core':
+        specifier: workspace:*
+        version: link:../canary-core
+      '@canaryctl/observers':
+        specifier: workspace:*
+        version: link:../canary-observers
       '@types/prismjs':
         specifier: ^1.26.6
         version: 1.26.6
-      canary-core:
-        specifier: workspace:*
-        version: link:../canary-core
-      canary-observers:
-        specifier: workspace:*
-        version: link:../canary-observers
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
@@ -115,13 +115,13 @@ importers:
 
   packages/canary-observers:
     dependencies:
-      canary-core:
+      '@canaryctl/core':
         specifier: workspace:*
         version: link:../canary-core
 
   packages/canaryctl:
     dependencies:
-      canary-core:
+      '@canaryctl/core':
         specifier: workspace:*
         version: link:../canary-core
       commander:

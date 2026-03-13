@@ -19,7 +19,7 @@ import type {
   SearchResult,
   SessionRecord,
   ThreadRecord,
-} from "canary-core";
+} from "@canaryctl/core";
 import {
   fetchProjectTree,
   fetchOverview,
