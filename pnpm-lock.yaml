@@ -39,7 +39,26 @@ importers:
         specifier: ^3.0.8
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)
 
-  packages/canary:
+  packages/canary-core:
+    dependencies:
+      better-sqlite3:
+        specifier: ^12.6.2
+        version: 12.6.2
+      kysely:
+        specifier: ^0.28.2
+        version: 0.28.11
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
+
+  packages/canary-observers:
+    dependencies:
+      '@canaryctl/core':
+        specifier: workspace:*
+        version: link:../canary-core
+
+  packages/canaryctl:
     dependencies:
       '@canaryctl/core':
         specifier: workspace:*
@@ -53,6 +72,9 @@ importers:
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
+      commander:
+        specifier: ^13.1.0
+        version: 13.1.0
       diff:
         specifier: ^8.0.2
         version: 8.0.3
@@ -99,34 +121,6 @@ importers:
       vite:
         specifier: ^6.2.1
         version: 6.4.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)
-
-  packages/canary-core:
-    dependencies:
-      better-sqlite3:
-        specifier: ^12.6.2
-        version: 12.6.2
-      kysely:
-        specifier: ^0.28.2
-        version: 0.28.11
-    devDependencies:
-      '@types/better-sqlite3':
-        specifier: ^7.6.13
-        version: 7.6.13
-
-  packages/canary-observers:
-    dependencies:
-      '@canaryctl/core':
-        specifier: workspace:*
-        version: link:../canary-core
-
-  packages/canaryctl:
-    dependencies:
-      '@canaryctl/core':
-        specifier: workspace:*
-        version: link:../canary-core
-      commander:
-        specifier: ^13.1.0
-        version: 13.1.0
 
 packages:
 

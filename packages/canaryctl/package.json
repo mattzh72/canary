@@ -1,24 +1,47 @@
 {
-  "name": "@canaryctl/cli",
+  "name": "canaryctl",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/cli/index.js",
   "types": "./dist/cli/index.d.ts",
   "bin": {
-    "canaryctl": "./dist/cli/index.js"
+    "canaryctl": "./dist/cli/index.js",
+    "canary": "./dist/cli/canary.js"
   },
   "files": [
     "dist",
+    "public",
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/cli/index.ts --format esm --dts --clean --out-dir dist/cli",
-    "lint": "eslint \"src/**/*.ts\"",
+    "build": "tsup src/cli/index.ts src/cli/canary.ts --format esm --dts --clean --out-dir dist/cli && tsup src/server/index.ts --format esm --dts --clean --out-dir dist/server && vite build",
+    "dev": "tsx watch src/cli/canary.ts",
+    "lint": "eslint \"src/**/*.ts\" \"src/client/src/**/*.tsx\"",
     "test": "CANARY_HOME=/tmp/canary-test-home vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@canaryctl/core": "workspace:*",
-    "commander": "^13.1.0"
+    "@canaryctl/observers": "workspace:*",
+    "@types/prismjs": "^1.26.6",
+    "chokidar": "^4.0.3",
+    "commander": "^13.1.0",
+    "diff": "^8.0.2",
+    "express": "^5.1.0",
+    "get-port": "^7.1.0",
+    "open": "^10.1.0",
+    "prismjs": "^1.30.0",
+    "react": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/express": "^5.0.1",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.2.1",
+    "vite": "^6.2.1"
   }
 }
