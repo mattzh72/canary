@@ -28,15 +28,8 @@ jobs:
       - name: Install and build
         run: pnpm install --frozen-lockfile && pnpm build
 
-      - name: Verify npm auth
-        run: npm whoami --registry https://registry.npmjs.org
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish to npm
         run: pnpm -r publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub release
         run: gh release create "${{ github.ref_name }}" --generate-notes
