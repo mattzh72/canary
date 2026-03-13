@@ -30,15 +30,14 @@ Project state lives under `~/.canary/projects/<project-hash>/canary.db`.
 ## Install
 
 ```bash
-brew install mattzh72/canary/canary
+npm install -g canaryctl
 ```
 
-This installs the `canary` and `canaryctl` commands.
-
-To set up the agent skill, run one of:
+To set up the agent skill:
 
 ```bash
 canaryctl skill setup --codex
+# or
 canaryctl skill setup --claude-code
 ```
 
@@ -71,6 +70,6 @@ git tag v0.x.0
 git push origin v0.x.0
 ```
 
-This automatically creates a GitHub release and updates the Homebrew formula with the new version and sha256.
+This automatically creates a GitHub release and publishes all packages to npm.
 
 </details>

@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -14,25 +15,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Install and build
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Publish to npm
+        run: pnpm -r publish --access public --no-git-checks
+
       - name: Create GitHub release
         run: gh release create "${{ github.ref_name }}" --generate-notes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update Homebrew formula
-        run: |
-          TAG="${{ github.ref_name }}"
-          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
-          curl -sL "$TARBALL_URL" -o release.tar.gz
-          SHA=$(shasum -a 256 release.tar.gz | awk '{print $1}')
-
-          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/canary.rb
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" Formula/canary.rb
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/canary.rb
-          git commit -m "Update Homebrew formula for ${TAG}"
-          git push origin HEAD:main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
